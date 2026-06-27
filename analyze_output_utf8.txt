@@ -1,0 +1,179 @@
+﻿Analyzing Flutter...
+
+  error - lib\main.dart:190:35 - The getter 'check_marklist_rtl_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'check_marklist_rtl_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'check_marklist_rtl_rounded'. - undefined_getter
+  error - lib\main.dart:207:26 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\biometrics_enrollment_screen.dart:40:18 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry'.  - argument_type_not_assignable
+  error - lib\screens\biometrics_enrollment_screen.dart:60:21 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\biometrics_enrollment_screen.dart:76:33 - The getter 'fingerprint_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'fingerprint_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'fingerprint_rounded'. - undefined_getter
+  error - lib\screens\biometrics_enrollment_screen.dart:117:12 - The method 'InkWell' isn't defined for the type '_BiometricsEnrollmentScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'InkWell'. - undefined_method
+  error - lib\screens\biometrics_enrollment_screen.dart:121:18 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\biometrics_enrollment_screen.dart:132:24 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\biometrics_enrollment_screen.dart:135:24 - The argument type 'WidgetStateProperty<BoxShape>' can't be assigned to the parameter type 'BoxShape'.  - argument_type_not_assignable
+  error - lib\screens\biometrics_enrollment_screen.dart:138:26 - Undefined name 'FluentFluentIcons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\biometrics_enrollment_screen.dart:161:20 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\document_capture_screen.dart:86:86 - Expected an identifier. - missing_identifier
+  error - lib\screens\document_capture_screen.dart:86:87 - Arguments of a constant creation must be constant expressions. Try making the argument a valid constant, or use 'new' to call the constructor. - const_with_non_constant_argument
+  error - lib\screens\document_capture_screen.dart:86:87 - Expected to find ','. - expected_token
+  error - lib\screens\document_capture_screen.dart:86:120 - Arguments of a constant creation must be constant expressions. Try making the argument a valid constant, or use 'new' to call the constructor. - const_with_non_constant_argument
+  error - lib\screens\document_capture_screen.dart:86:120 - Expected to find ','. - expected_token
+  error - lib\screens\document_capture_screen.dart:86:120 - Undefined name 'Capture'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\document_capture_screen.dart:86:128 - Expected to find ','. - expected_token
+  error - lib\screens\document_capture_screen.dart:86:128 - The named parameter 'failed' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'failed'. - undefined_named_parameter
+  error - lib\screens\document_capture_screen.dart:86:136 - Invalid constant value. - invalid_constant
+  error - lib\screens\document_capture_screen.dart:86:136 - Undefined name '$e'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\document_capture_screen.dart:86:138 - Expected to find ','. - expected_token
+  error - lib\screens\document_capture_screen.dart:86:138 - Expected to find ';'. - expected_token
+  error - lib\screens\document_capture_screen.dart:86:217 - Unterminated string literal. - unterminated_string_literal
+  error - lib\screens\document_capture_screen.dart:87:5 - Expected to find ')'. - expected_token
+  error - lib\screens\document_capture_screen.dart:206:24 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\document_capture_screen.dart:206:92 - The named parameter 'vertical' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'vertical'. - undefined_named_parameter
+  error - lib\screens\document_capture_screen.dart:215:38 - Undefined name 'FluentFluentIcons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\document_capture_screen.dart:241:26 - The argument type 'WidgetStateProperty<BoxShape>' can't be assigned to the parameter type 'BoxShape'.  - argument_type_not_assignable
+  error - lib\screens\document_capture_screen.dart:250:30 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\document_capture_screen.dart:250:30 - The argument type 'WidgetStateProperty<BoxShape>' can't be assigned to the parameter type 'BoxShape'.  - argument_type_not_assignable
+  error - lib\screens\document_capture_screen.dart:265:16 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry'.  - argument_type_not_assignable
+  error - lib\screens\document_capture_screen.dart:289:32 - The argument type 'WidgetStateProperty<Color>' can't be assigned to the parameter type 'Color?'.  - argument_type_not_assignable
+  error - lib\screens\document_capture_screen.dart:290:15 - The named parameter 'valueColor' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'valueColor'. - undefined_named_parameter
+  error - lib\screens\document_capture_screen.dart:291:15 - The named parameter 'minHeight' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'minHeight'. - undefined_named_parameter
+  error - lib\screens\document_capture_screen.dart:292:15 - The named parameter 'borderRadius' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'borderRadius'. - undefined_named_parameter
+  error - lib\screens\document_capture_screen.dart:299:24 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\document_capture_screen.dart:307:56 - Invalid constant value. - invalid_constant
+  error - lib\screens\document_capture_screen.dart:311:51 - Invalid constant value. - invalid_constant
+  error - lib\screens\document_capture_screen.dart:327:21 - The named parameter 'side' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'side'. - undefined_named_parameter
+  error - lib\screens\document_capture_screen.dart:327:51 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\document_capture_screen.dart:346:97 - The named parameter 'color' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'color'. - undefined_named_parameter
+  error - lib\screens\document_upload_screen.dart:67:9 - Undefined name 'ScaffoldMessenger'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\document_upload_screen.dart:68:17 - The name 'SnackBar' isn't a class. Try correcting the name to match an existing class. - creation_with_non_type
+  error - lib\screens\document_upload_screen.dart:77:9 - Undefined name 'ScaffoldMessenger'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\document_upload_screen.dart:78:11 - The method 'SnackBar' isn't defined for the type '_DocumentUploadScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'SnackBar'. - undefined_method
+  error - lib\screens\document_upload_screen.dart:93:18 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry'.  - argument_type_not_assignable
+  error - lib\screens\document_upload_screen.dart:124:93 - The named parameter 'color' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'color'. - undefined_named_parameter
+  error - lib\screens\document_upload_screen.dart:140:18 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\document_upload_screen.dart:152:24 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\document_upload_screen.dart:155:24 - The argument type 'WidgetStateProperty<BoxShape>' can't be assigned to the parameter type 'BoxShape'.  - argument_type_not_assignable
+  error - lib\screens\document_upload_screen.dart:158:27 - Undefined name 'FluentFluentIcons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\document_upload_screen.dart:158:83 - The getter 'camera_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'camera_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'camera_rounded'. - undefined_getter
+  error - lib\screens\enrollment_qr_screen.dart:79:24 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry'.  - argument_type_not_assignable
+  error - lib\screens\enrollment_qr_screen.dart:114:20 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\enrollment_qr_screen.dart:117:20 - The argument type 'WidgetStateProperty<BoxShape>' can't be assigned to the parameter type 'BoxShape'.  - argument_type_not_assignable
+  error - lib\screens\enrollment_qr_screen.dart:119:29 - Arguments of a constant creation must be constant expressions. Try making the argument a valid constant, or use 'new' to call the constructor. - const_with_non_constant_argument
+  error - lib\screens\enrollment_qr_screen.dart:119:41 - The getter 'q_r_code_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'q_r_code_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'q_r_code_rounded'. - undefined_getter
+  error - lib\screens\enrollment_qr_screen.dart:160:62 - Invalid constant value. - invalid_constant
+  error - lib\screens\enrollment_qr_screen.dart:208:28 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\enrollment_qr_screen.dart:208:96 - The named parameter 'vertical' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'vertical'. - undefined_named_parameter
+  error - lib\screens\enrollment_qr_screen.dart:260:5 - The method 'showModalBottomSheet' isn't defined for the type '_EnrollmentQRScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'showModalBottomSheet'. - undefined_method
+  error - lib\screens\enrollment_qr_screen.dart:289:78 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\enrollment_qr_screen.dart:291:71 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\enrollment_qr_screen.dart:302:24 - The argument type 'RoundedRectangleBorder' can't be assigned to the parameter type 'WidgetStateProperty<ShapeBorder?>?'.  - argument_type_not_assignable
+  error - lib\screens\enrollment_qr_screen.dart:315:12 - The method 'TextField' isn't defined for the type '_EnrollmentQRScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'TextField'. - undefined_method
+  error - lib\screens\enrollment_qr_screen.dart:318:19 - The method 'InputDecoration' isn't defined for the type '_EnrollmentQRScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'InputDecoration'. - undefined_method
+  error - lib\screens\enrollment_qr_screen.dart:324:17 - The method 'OutlineInputBorder' isn't defined for the type '_EnrollmentQRScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'OutlineInputBorder'. - undefined_method
+  error - lib\screens\face_liveness_screen.dart:384:31 - Arguments of a constant creation must be constant expressions. Try making the argument a valid constant, or use 'new' to call the constructor. - const_with_non_constant_argument
+  error - lib\screens\face_liveness_screen.dart:384:43 - The getter 'check_mark_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'check_mark_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'check_mark_rounded'. - undefined_getter
+  error - lib\screens\face_liveness_screen.dart:392:31 - Invalid constant value. - invalid_constant
+  error - lib\screens\face_liveness_screen.dart:392:31 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\face_liveness_screen.dart:396:49 - The named parameter 'valueColor' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'valueColor'. - undefined_named_parameter
+  error - lib\screens\face_liveness_screen.dart:409:37 - Arguments of a constant creation must be constant expressions. Try making the argument a valid constant, or use 'new' to call the constructor. - const_with_non_constant_argument
+  error - lib\screens\face_liveness_screen.dart:409:49 - The getter 'back_ios_new_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'back_ios_new_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'back_ios_new_rounded'. - undefined_getter
+  error - lib\screens\face_liveness_screen.dart:409:78 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\face_liveness_screen.dart:476:20 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\face_liveness_screen.dart:476:32 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\face_liveness_screen.dart:476:49 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\face_liveness_screen.dart:488:25 - Undefined name 'FluentFluentIcons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\face_liveness_screen.dart:511:31 - The named parameter 'valueColor' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'valueColor'. - undefined_named_parameter
+  error - lib\screens\fingerprint_scan_screen.dart:145:25 - The named parameter 'valueColor' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'valueColor'. - undefined_named_parameter
+  error - lib\screens\fingerprint_scan_screen.dart:167:43 - The getter 'fingerprint_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'fingerprint_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'fingerprint_rounded'. - undefined_getter
+  error - lib\screens\fingerprint_scan_screen.dart:176:34 - Invalid constant value. - invalid_constant
+  error - lib\screens\fingerprint_scan_screen.dart:176:34 - Undefined name 'FluentFluentIcons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\login_screen.dart:144:5 - Undefined name 'ScaffoldMessenger'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\login_screen.dart:145:5 - Undefined name 'ScaffoldMessenger'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\login_screen.dart:146:7 - The method 'SnackBar' isn't defined for the type '_SecureLoginScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'SnackBar'. - undefined_method
+  error - lib\screens\login_screen.dart:159:20 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry'.  - argument_type_not_assignable
+  error - lib\screens\login_screen.dart:194:61 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\login_screen.dart:199:15 - The method 'TextField' isn't defined for the type '_SecureLoginScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'TextField'. - undefined_method
+  error - lib\screens\login_screen.dart:202:29 - The method 'InputDecoration' isn't defined for the type '_SecureLoginScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'InputDecoration'. - undefined_method
+  error - lib\screens\login_screen.dart:204:54 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\login_screen.dart:207:27 - The method 'OutlineInputBorder' isn't defined for the type '_SecureLoginScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'OutlineInputBorder'. - undefined_method
+  error - lib\screens\login_screen.dart:218:37 - The getter 'contact_add_outlined' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'contact_add_outlined', correcting the name to the name of an existing getter, or defining a getter or field named 'contact_add_outlined'. - undefined_getter
+  error - lib\screens\login_screen.dart:228:32 - Invalid constant value. - invalid_constant
+  error - lib\screens\login_screen.dart:228:32 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\login_screen.dart:228:60 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\login_screen.dart:230:36 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\login_screen.dart:245:37 - The getter 'lock_open' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'lock_open', correcting the name to the name of an existing getter, or defining a getter or field named 'lock_open'. - undefined_getter
+  error - lib\screens\login_screen.dart:253:36 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\login_screen.dart:255:32 - Invalid constant value. - invalid_constant
+  error - lib\screens\login_screen.dart:255:32 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\login_screen.dart:255:60 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\login_screen.dart:275:49 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\login_screen.dart:285:51 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\login_screen.dart:300:43 - Invalid constant value. - invalid_constant
+  error - lib\screens\login_screen.dart:300:54 - The getter 'normalAccent' isn't defined for the type 'AccentColor'. Try importing the library that defines 'normalAccent', correcting the name to the name of an existing getter, or defining a getter or field named 'normalAccent'. - undefined_getter
+  error - lib\screens\login_screen.dart:320:14 - The named parameter 'child' is required, but there's no corresponding argument. Try adding the required argument. - missing_required_argument
+  error - lib\screens\login_screen.dart:322:9 - The named parameter 'icon' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'icon'. - undefined_named_parameter
+  error - lib\screens\login_screen.dart:328:9 - The named parameter 'label' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'label'. - undefined_named_parameter
+  error - lib\screens\login_screen.dart:341:16 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\login_screen.dart:341:84 - The named parameter 'vertical' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'vertical'. - undefined_named_parameter
+  error - lib\screens\login_screen.dart:352:53 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\signup_form_screen.dart:81:5 - The method 'showModalBottomSheet' isn't defined for the type '_SignUpFormScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'showModalBottomSheet'. - undefined_method
+  error - lib\screens\signup_form_screen.dart:91:26 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\signup_form_screen.dart:97:75 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\signup_form_screen.dart:130:7 - Undefined name 'ScaffoldMessenger'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\signup_form_screen.dart:131:15 - The name 'SnackBar' isn't a class. Try correcting the name to match an existing class. - creation_with_non_type
+  error - lib\screens\signup_form_screen.dart:161:20 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\signup_form_screen.dart:199:37 - The getter 'contact_outline' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'contact_outline', correcting the name to the name of an existing getter, or defining a getter or field named 'contact_outline'. - undefined_getter
+  error - lib\screens\signup_form_screen.dart:207:25 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\signup_form_screen.dart:215:25 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\signup_form_screen.dart:229:30 - The argument type 'WidgetStateProperty<EdgeInsets>' can't be assigned to the parameter type 'EdgeInsetsGeometry?'.  - argument_type_not_assignable
+  error - lib\screens\signup_form_screen.dart:229:98 - The named parameter 'vertical' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'vertical'. - undefined_named_parameter
+  error - lib\screens\signup_form_screen.dart:237:36 - Invalid constant value. - invalid_constant
+  error - lib\screens\signup_form_screen.dart:237:36 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\signup_form_screen.dart:284:12 - The method 'TextFormField' isn't defined for the type '_SignUpFormScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'TextFormField'. - undefined_method
+  error - lib\screens\signup_form_screen.dart:288:19 - The method 'InputDecoration' isn't defined for the type '_SignUpFormScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'InputDecoration'. - undefined_method
+  error - lib\screens\signup_form_screen.dart:290:44 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\signup_form_screen.dart:296:17 - The method 'OutlineInputBorder' isn't defined for the type '_SignUpFormScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'OutlineInputBorder'. - undefined_method
+  error - lib\screens\signup_form_screen.dart:300:24 - The method 'OutlineInputBorder' isn't defined for the type '_SignUpFormScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'OutlineInputBorder'. - undefined_method
+  error - lib\screens\signup_form_screen.dart:304:24 - The method 'OutlineInputBorder' isn't defined for the type '_SignUpFormScreenState'. Try correcting the name to the name of an existing method, or defining a method named 'OutlineInputBorder'. - undefined_method
+  error - lib\screens\status_screen.dart:35:28 - Arguments of a constant creation must be constant expressions. Try making the argument a valid constant, or use 'new' to call the constructor. - const_with_non_constant_argument
+  error - lib\screens\status_screen.dart:35:40 - The getter 'back_ios_new_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'back_ios_new_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'back_ios_new_rounded'. - undefined_getter
+  error - lib\screens\status_screen.dart:111:31 - Invalid constant value. - invalid_constant
+  error - lib\screens\status_screen.dart:111:31 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\task_centre_screen.dart:9:19 - Undefined name 'Theme'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\task_centre_screen.dart:13:28 - Arguments of a constant creation must be constant expressions. Try making the argument a valid constant, or use 'new' to call the constructor. - const_with_non_constant_argument
+  error - lib\screens\task_centre_screen.dart:13:40 - The getter 'back_ios_new_rounded' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'back_ios_new_rounded', correcting the name to the name of an existing getter, or defining a getter or field named 'back_ios_new_rounded'. - undefined_getter
+  error - lib\screens\task_centre_screen.dart:33:21 - Undefined name 'Icons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\task_centre_screen.dart:41:33 - The getter 'lock_outline' isn't defined for the type 'FluentIcons'. Try importing the library that defines 'lock_outline', correcting the name to the name of an existing getter, or defining a getter or field named 'lock_outline'. - undefined_getter
+  error - lib\screens\task_centre_screen.dart:51:21 - Undefined name 'FluentFluentIcons'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\screens\task_centre_screen.dart:109:38 - Methods can't be invoked in constant expressions. - const_eval_method_invocation
+  error - lib\screens\task_centre_screen.dart:111:21 - The named parameter 'minHeight' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'minHeight'. - undefined_named_parameter
+  error - lib\screens\task_centre_screen.dart:205:29 - The named parameter 'minHeight' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'minHeight'. - undefined_named_parameter
+  error - lib\services\enrollment_service.dart:62:7 - The named parameter 'content' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'content'. - undefined_named_parameter
+  error - lib\services\enrollment_service.dart:110:9 - The named parameter 'content' isn't defined. Try correcting the name to an existing named parameter's name, or defining a named parameter with the name 'content'. - undefined_named_parameter
+  error - lib\services\notification_service.dart:23:9 - Undefined name 'ScaffoldMessenger'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - lib\services\notification_service.dart:24:11 - The method 'SnackBar' isn't defined for the type 'NotificationService'. Try correcting the name to the name of an existing method, or defining a method named 'SnackBar'. - undefined_method
+  error - lib\services\notification_service.dart:39:23 - Undefined name 'SnackBarBehavior'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+warning - lib\main.dart:2:45 - The name MaterialPageRoute is shown, but isn't used. Try removing the name from the list of shown members. - unused_shown_name
+warning - lib\screens\document_upload_screen.dart:17:21 - The value of the field '_picker' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\screens\face_liveness_screen.dart:43:16 - The value of the field '_greenDark' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\screens\face_liveness_screen.dart:44:16 - The value of the field '_greenGlow' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\screens\fingerprint_scan_screen.dart:16:26 - The value of the field '_scanLineAnimation' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\screens\signup_form_screen.dart:25:29 - The value of the field '_auth' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\screens\task_centre_screen.dart:9:11 - The value of the local variable 'theme' isn't used. Try removing the variable or using it. - unused_local_variable
+warning - lib\screens\verify_face_screen.dart:32:16 - The value of the field '_scanPercent' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\screens\verify_face_screen.dart:33:10 - The value of the field '_errorMessage' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\services\enrollment_service.dart:15:9 - The value of the field '_appAuth' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\services\enrollment_service.dart:22:16 - The value of the field '_keycloakIssuer' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\services\enrollment_service.dart:23:16 - The value of the field '_keycloakClientId' isn't used. Try removing the field, or using it. - unused_field
+warning - lib\services\enrollment_service.dart:24:16 - The value of the field '_keycloakRedirectUri' isn't used. Try removing the field, or using it. - unused_field
+   info - lib\screens\enrollment_qr_screen.dart:210:89 - Unnecessary 'const' keyword. Try removing the keyword. - unnecessary_const
+   info - lib\screens\face_liveness_screen.dart:147:57 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+   info - lib\screens\face_liveness_screen.dart:360:70 - Unnecessary 'const' keyword. Try removing the keyword. - unnecessary_const
+   info - lib\screens\fingerprint_scan_screen.dart:145:73 - Unnecessary 'const' keyword. Try removing the keyword. - unnecessary_const
+   info - lib\screens\fingerprint_scan_screen.dart:176:84 - Unnecessary 'const' keyword. Try removing the keyword. - unnecessary_const
+   info - lib\screens\login_screen.dart:111:7 - Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check. - use_build_context_synchronously
+   info - lib\screens\signup_form_screen.dart:192:43 - Unnecessary 'const' keyword. Try removing the keyword. - unnecessary_const
+   info - lib\services\enrollment_service.dart:36:7 - Don't invoke 'print' in production code. Try using a logging framework. - avoid_print
+   info - lib\services\enrollment_service.dart:45:7 - Don't invoke 'print' in production code. Try using a logging framework. - avoid_print
+   info - lib\services\enrollment_service.dart:120:7 - Don't invoke 'print' in production code. Try using a logging framework. - avoid_print
+   info - lib\services\notification_service.dart:23:30 - Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check. - use_build_context_synchronously
+
+175 issues found.
