@@ -12,3 +12,9 @@ jobs:
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter test
       - run: flutter build ios --no-codesign
+      - run: flutter build ios --simulator
+      - run: cd build/ios/iphonesimulator && zip -r Runner.zip Runner.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-sim-app
+          path: build/ios/iphonesimulator/Runner.zip
