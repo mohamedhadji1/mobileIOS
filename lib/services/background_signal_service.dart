@@ -141,6 +141,7 @@ class BackgroundSignalService {
         'sim_carrier_name': p['sim_carrier_name']?.toString(),
         'sim_mcc': p['sim_mcc']?.toString(),
         'sim_mnc': p['sim_mnc']?.toString(),
+        'cell_id': p['cell_id']?.toString(),
       };
 
   String _severityFor(String field, String? from, String? to) {
@@ -156,6 +157,8 @@ class BackgroundSignalService {
       case 'wifi_ssid':
       case 'wifi_bssid':
         return 'MEDIUM'; // network switch
+      case 'cell_id':
+        return 'MEDIUM'; // cell-tower change = movement
       default:
         return 'INFO';
     }
@@ -378,6 +381,25 @@ class BackgroundSignalService {
       debugPrint('⚠️ Telemetry Warning: SIM/carrier read failed ($e)');
     }
 
+    // 5b. Cellular cell-tower ID (real, Android only — iOS does not expose it)
+    String? cellId, cellTac, cellLac, cellRadio, cellMcc, cellMnc;
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final cell =
+            await _deviceChannel.invokeMapMethod<String, dynamic>('getCellInfo');
+        if (cell != null) {
+          cellId = cell['cell_id']?.toString();
+          cellTac = cell['cell_tac']?.toString();
+          cellLac = cell['cell_lac']?.toString();
+          cellRadio = cell['cell_radio']?.toString();
+          cellMcc = cell['cell_mcc']?.toString();
+          cellMnc = cell['cell_mnc']?.toString();
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Telemetry Warning: cell info read failed ($e)');
+    }
+
     // 6. GPS (real)
     double lat = 0.0;
     double lon = 0.0;
@@ -434,6 +456,12 @@ class BackgroundSignalService {
       'sim_mnc': simMnc,
       'mobile_network_generation': mobileGeneration,
       'sim_state': simState,
+      'cell_id': cellId,
+      'cell_tac': cellTac,
+      'cell_lac': cellLac,
+      'cell_radio': cellRadio,
+      'cell_mcc': cellMcc,
+      'cell_mnc': cellMnc,
       'gps_latitude': lat,
       'gps_longitude': lon,
       'gps_accuracy': accuracy,
