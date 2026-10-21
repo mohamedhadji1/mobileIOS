@@ -9,12 +9,15 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
-      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
-      - run: flutter test
-      - run: flutter build ios --no-codesign
-      - run: flutter build ios --simulator
-      - run: cd build/ios/iphonesimulator && zip -r Runner.zip Runner.app
+      - run: flutter analyze
+      - run: flutter test --dart-define=DOCUMENT_DEBUG=true
+      - run: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA
+        run: |
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qr Runner-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-sim-app
-          path: build/ios/iphonesimulator/Runner.zip
+          name: Runner-unsigned-ipa
+          path: Runner-unsigned.ipa

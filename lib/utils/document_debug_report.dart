@@ -13,12 +13,10 @@ export 'debug_trace.dart' show TraceStatus;
 
 /// Tester-only: record every upload, its check and the status the backend
 /// finally gives the document. Everything shown is what the backend really
-/// answered. On in debug builds; override with
-/// `--dart-define=DOCUMENT_DEBUG=true` or `false`.
-// Off for the demo recording. Restore the line below to bring it back.
-const documentDebugReport = false;
-// const documentDebugReport =
-//     bool.fromEnvironment('DOCUMENT_DEBUG', defaultValue: kDebugMode);
+/// answered. Off by default (demo recording); turn on with
+/// `--dart-define=DOCUMENT_DEBUG=true`. The unit tests need it on, so run
+/// `flutter test --dart-define=DOCUMENT_DEBUG=true`.
+const documentDebugReport = bool.fromEnvironment('DOCUMENT_DEBUG');
 
 String _sec(int ms) => '${(ms / 1000).toStringAsFixed(1)} s';
 
