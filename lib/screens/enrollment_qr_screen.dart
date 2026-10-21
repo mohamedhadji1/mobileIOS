@@ -526,7 +526,7 @@ class _EnrollmentQRScreenState extends State<EnrollmentQRScreen>
           children: [
             MobileScanner(
               controller: _scannerController,
-              errorBuilder: (context, error, child) {
+              errorBuilder: (context, error) {
                 debugPrint(
                     'âŒ MobileScanner Camera Error: ${error.errorCode} - ${error.errorDetails}');
                 final friendly = switch (error.errorCode) {
