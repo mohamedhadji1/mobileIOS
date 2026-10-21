@@ -37,7 +37,7 @@ import 'package:cypurge_mobile/utils/profile_photo.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:cypurge_mobile/services/background_signal_service.dart';
 import 'package:flutter/foundation.dart'
-    show kDebugMode, defaultTargetPlatform, TargetPlatform;
+    show defaultTargetPlatform, TargetPlatform;
 import 'utils/error_humanizer.dart';
 
 @pragma('vm:entry-point')
@@ -72,10 +72,7 @@ Future<void> main() async {
   // it starts on the next event-loop turn instead of delaying runApp. An event
   // turn, not a post-frame callback: an iOS background relaunch may never draw.
   Timer.run(() {
-    Workmanager().initialize(
-      callbackDispatcher,
-      isInDebugMode: kDebugMode,
-    );
+    Workmanager().initialize(callbackDispatcher);
 
     // Android honors a true 15-min periodic poll. iOS BGAppRefresh is OS-paced
     // and won't fire faster than ~1h reliably, so ask for 1h there.
@@ -525,7 +522,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final _service = EnrollmentService();
 
   String _name = 'Worker';
-  String _workerId = '—';
   String _tenant = 'Maritime Trust';
   WTTagKind _statusKind = WTTagKind.amber;
   String _statusTitle = 'PENDING';
@@ -542,14 +538,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _load() async {
     final name = await _storage.read(key: 'cypurge_worker_name');
-    final id = await _storage.read(key: 'worker_id');
     final tenant = await _storage.read(key: 'tenant_slug') ??
         await _storage.read(key: 'tenant_id');
     final photo = await loadProfileSelfie();
     if (mounted) {
       setState(() {
         if (name != null && name.trim().isNotEmpty) _name = name.trim();
-        if (id != null && id.isNotEmpty) _workerId = id;
         if (tenant != null && tenant.isNotEmpty) _tenant = tenant;
         _photo = photo;
       });

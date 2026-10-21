@@ -31,7 +31,6 @@ class _VerifyFaceScreenState extends State<VerifyFaceScreen>
   int _countdown = 3;
   Timer? _countdownTimer;
   bool _eyesOpen = false;
-  final double _scanPercent = 0;
   String _errorMessage = '';
 
   @override

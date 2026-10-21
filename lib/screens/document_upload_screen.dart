@@ -39,7 +39,6 @@ class DocumentUploadScreen extends StatefulWidget {
 
 class _DocumentUploadScreenState extends State<DocumentUploadScreen>
     with TickerProviderStateMixin {
-  final ImagePicker _picker = ImagePicker();
   final _storage = const FlutterSecureStorage();
 
   final List<Map<String, dynamic>> _steps = [
@@ -125,7 +124,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen>
   bool _isUploading = false;
   double _uploadProgress = 0.0;
   String _uploadStage = '';
-  int _currentUploadStageIndex = -1;
 
   // Only the progress glow is actually rendered (the AnimatedBuilder in the
   // upload overlay). A "_pulse" and a "_scanLine" controller used to live here
@@ -541,7 +539,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen>
     setState(() {
       _isUploading = true;
       _uploadProgress = 0.0;
-      _currentUploadStageIndex = 0;
       _uploadStage = _uploadStages[0]['label'];
     });
 
@@ -613,7 +610,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen>
 
         // Stage 1: Generate Upload URL
         setState(() {
-          _currentUploadStageIndex = 0;
           _uploadStage = 'Requesting secure upload URL for ${step['title']}...';
           _uploadProgress = (i * progressPerDoc) + (progressPerDoc * 0.1);
         });
@@ -640,7 +636,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen>
 
         // Stage 2: PUT request upload to MinIO with SSE-KMS headers
         setState(() {
-          _currentUploadStageIndex = 2; // Encrypting/Uploading stage
           _uploadStage = 'Encrypting & uploading ${step['title']}...';
           _uploadProgress = (i * progressPerDoc) + (progressPerDoc * 0.4);
         });
@@ -689,7 +684,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen>
 
         // Stage 3: Confirm upload via gRPC
         setState(() {
-          _currentUploadStageIndex = 4; // Finalizing stage
           _uploadStage = 'Confirming upload for ${step['title']}...';
           _uploadProgress = (i * progressPerDoc) + (progressPerDoc * 0.8);
         });
@@ -733,7 +727,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen>
             : null;
         final withBack = back != null && activeDocs.contains(back);
         setState(() {
-          _currentUploadStageIndex = 4;
           _uploadProgress = 0.95;
           _uploadStage = id.endsWith('_front')
               ? 'Reading your ${_cardName(step)}… this can take up to a '
@@ -804,7 +797,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen>
         setState(() {
           _isUploading = false;
           _uploadProgress = 0.0;
-          _currentUploadStageIndex = -1;
         });
       }
     }
@@ -1018,145 +1010,6 @@ class _DocumentUploadScreenState extends State<DocumentUploadScreen>
           // A picked PDF or Word file is not an image.
           errorBuilder: (_, __, ___) => Icon(Icons.description_rounded,
               color: AppTheme.success, size: 24)),
-    );
-  }
-
-  Widget _buildStepCard(Map<String, dynamic> step) {
-    final bool hasFile = step['file'] != null;
-
-    return Container(
-      padding: const EdgeInsets.all(28),
-      decoration: AppTheme.card(radius: AppTheme.rXl),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.tint(AppTheme.accent),
-              ),
-              child: Center(
-                child: Icon(step['icon'] as IconData,
-                    color: AppTheme.accent, size: 44),
-              ),
-            ),
-            const SizedBox(height: 32),
-            Text(
-              step['title'],
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppTheme.ink,
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              step['description'],
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppTheme.muted,
-                fontSize: 15,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 48),
-            if (hasFile)
-              _buildThumbnail(step['file'])
-            else
-              _buildCaptureButton(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCaptureButton() {
-    return Semantics(
-        button: true,
-        label: 'Take a photo of this document',
-        excludeSemantics: true,
-        child: GestureDetector(
-          onTap: _captureCurrentDoc,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppTheme.accent, AppTheme.accentLight],
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.accent.withValues(alpha: 0.3),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.photo_camera_rounded, color: Colors.white, size: 24),
-                SizedBox(width: 12),
-                Text(
-                  'Capture Document',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ));
-  }
-
-  Widget _buildThumbnail(File file) {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 200,
-          height: 130,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            image: DecorationImage(
-              image: ResizeImage(FileImage(file),
-                  width:
-                      (200 * MediaQuery.devicePixelRatioOf(context)).round()),
-              fit: BoxFit.cover,
-            ),
-            border: Border.all(color: AppTheme.success, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.success.withValues(alpha: 0.2),
-                blurRadius: 20,
-              ),
-            ],
-          ),
-        ),
-        Positioned(
-          top: 0,
-          right: 0,
-          child: IconButton(
-            tooltip: 'Remove photo',
-            icon: Container(
-              padding: const EdgeInsets.all(6),
-              decoration:
-                  BoxDecoration(color: AppTheme.error, shape: BoxShape.circle),
-              child:
-                  Icon(Icons.close_rounded, color: AppTheme.onError, size: 16),
-            ),
-            onPressed: () =>
-                setState(() => _steps[_activeStepIndex]['file'] = null),
-          ),
-        ),
-      ],
     );
   }
 
