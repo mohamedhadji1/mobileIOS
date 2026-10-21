@@ -40,6 +40,15 @@ class QualificationParserServiceClient extends $grpc.Client {
     return $createUnaryCall(_$parseQualification, request, options: options);
   }
 
+  /// ParseCv extracts suggested work-experience and qualification entries from a
+  /// CV PDF. The output is heuristic: callers present it as editable suggestions.
+  $grpc.ResponseFuture<$0.ParseCvResponse> parseCv(
+    $0.ParseCvRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$parseCv, request, options: options);
+  }
+
   // method descriptors
 
   static final _$parseQualification = $grpc.ClientMethod<
@@ -47,6 +56,11 @@ class QualificationParserServiceClient extends $grpc.Client {
       '/qualification_parser.v1.QualificationParserService/ParseQualification',
       ($0.ParseQualificationRequest value) => value.writeToBuffer(),
       $0.ParseQualificationResponse.fromBuffer);
+  static final _$parseCv =
+      $grpc.ClientMethod<$0.ParseCvRequest, $0.ParseCvResponse>(
+          '/qualification_parser.v1.QualificationParserService/ParseCv',
+          ($0.ParseCvRequest value) => value.writeToBuffer(),
+          $0.ParseCvResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('qualification_parser.v1.QualificationParserService')
@@ -64,6 +78,13 @@ abstract class QualificationParserServiceBase extends $grpc.Service {
         ($core.List<$core.int> value) =>
             $0.ParseQualificationRequest.fromBuffer(value),
         ($0.ParseQualificationResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.ParseCvRequest, $0.ParseCvResponse>(
+        'ParseCv',
+        parseCv_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.ParseCvRequest.fromBuffer(value),
+        ($0.ParseCvResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.ParseQualificationResponse> parseQualification_Pre(
@@ -74,4 +95,12 @@ abstract class QualificationParserServiceBase extends $grpc.Service {
 
   $async.Future<$0.ParseQualificationResponse> parseQualification(
       $grpc.ServiceCall call, $0.ParseQualificationRequest request);
+
+  $async.Future<$0.ParseCvResponse> parseCv_Pre($grpc.ServiceCall $call,
+      $async.Future<$0.ParseCvRequest> $request) async {
+    return parseCv($call, await $request);
+  }
+
+  $async.Future<$0.ParseCvResponse> parseCv(
+      $grpc.ServiceCall call, $0.ParseCvRequest request);
 }

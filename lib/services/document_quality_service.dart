@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -68,7 +69,13 @@ class DocumentQuality {
 /// the document capture screen to warn the worker about blur/lighting and to
 /// block submission of images below the minimum resolution (US-013-1).
 class DocumentQualityService {
-  static Future<DocumentQuality> analyze(String imagePath) async {
+  /// Decode, resize and the per-pixel loops cost hundreds of ms on a full
+  /// sensor still, so they run off the UI isolate. Only the path crosses in
+  /// and a plain value object comes back.
+  static Future<DocumentQuality> analyze(String imagePath) =>
+      Isolate.run(() => _analyze(imagePath));
+
+  static Future<DocumentQuality> _analyze(String imagePath) async {
     final bytes = await File(imagePath).readAsBytes();
     final hash = sha256.convert(bytes).toString();
 

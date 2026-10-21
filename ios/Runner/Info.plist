@@ -12,12 +12,26 @@
 	<string>Location is used to verify your work site and read the network you are connected to for security monitoring.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Background location lets the app report device security signals while you are on duty.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Background location lets the app report device security signals while you are on duty.</string>
+	<!-- Background telemetry: keep GPS + periodic security refresh alive while backgrounded. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<!-- BGTaskScheduler ids MUST match the workmanager uniqueName registered in AppDelegate + Dart. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>device-signal-collector-task</string>
+	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Cypurge Mobile</string>
+	<string>Tridoma</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

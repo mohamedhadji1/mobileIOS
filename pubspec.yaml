@@ -12,6 +12,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   local_auth: ^3.0.1
   image_picker: ^1.2.2
+  # Camera/gallery/file picks land in the app cache dir, which Android reclaims
+  # under storage pressure — uploads happen minutes later, so picks are copied
+  # into the app documents dir first.
+  path_provider: ^2.1.5
   flutter_secure_storage: ^10.0.0
   biometric_storage: ^5.0.0
   uuid: ^4.5.3
@@ -23,7 +27,7 @@ dependencies:
   pointycastle: ^3.9.1
   image: ^4.5.3
   app_links: ^6.3.2
-  mobile_scanner: ^7.0.0
+  mobile_scanner: ^6.0.4
   flutter_appauth: ^7.0.1
   http: ^1.3.0
   fluent_ui: ^4.13.0
@@ -43,6 +47,17 @@ dependencies:
   hugeicons: ^1.1.7
   flutter_localizations:
     sdk: flutter
+  vibration: ^3.2.0
+  # Puts push into the OS notification shade. Without it NotificationService can
+  # only draw an in-app InfoBar, which needs the app already open and in front —
+  # i.e. exactly when the worker does not need to be notified.
+  # Requires core-library desugaring; see android/app/build.gradle.kts.
+  flutter_local_notifications: ^18.0.1
+  # No unifiedpush dependency on purpose. The backend hand-off moved to path D
+  # (per-worker Gotify identity, provisioned server-side, streamed by this app),
+  # which needs no distributor app. UnifiedPush also dragged in
+  # webpush_encryption -> webcrypto, whose build hook needs CMake on the host and
+  # broke `flutter test`. The backend keeps RegisterPushToken if we ever go back.
 
 dev_dependencies:
   flutter_test:

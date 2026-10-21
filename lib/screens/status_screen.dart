@@ -1,6 +1,7 @@
-﻿import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/enrollment_service.dart';
+import '../utils/error_humanizer.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_widgets.dart';
 import 'worker_nav.dart';
@@ -26,16 +27,22 @@ class _StatusScreenState extends State<StatusScreen> {
   }
 
   Future<void> _fetchStatus() async {
-    setState(() => _isLoading = true);
+    // Clear the old error, or a Retry that succeeds still shows the error.
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final data = await _service.getWorkerStatus();
+      if (!mounted) return;
       setState(() {
         _statusData = data;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
+        _error = humanizeError(e, action: 'load your status');
         _isLoading = false;
       });
     }
@@ -50,39 +57,40 @@ class _StatusScreenState extends State<StatusScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
-      header: PageHeader(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: IconButton(
-            icon: Icon(FluentIcons.chevron_left, color: AppTheme.ink, size: 18),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        commandBar: CommandBar(
-          mainAxisAlignment: MainAxisAlignment.end,
-          primaryItems: [
-            CommandBarButton(
-              icon: Icon(FluentIcons.refresh, color: AppTheme.accent),
-              label: Text('Refresh', style: TextStyle(color: AppTheme.accent)),
-              onPressed: _fetchStatus,
+    final failed = !_isLoading && _error != null;
+    return WTPage(
+      appBar: AppBar(
+        title: const Text('My status'),
+        // The error view has its own Retry; one way to try again is enough.
+        actions: [
+          if (!failed)
+            TextButton.icon(
+              onPressed: _isLoading ? null : _fetchStatus,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Refresh'),
             ),
-          ],
-        ),
+        ],
       ),
+      nav: WTBottomNav(items: workerNavItems(context, 2), activeIndex: 2),
       content: Container(
         color: AppTheme.bg,
         child: SafeArea(
           child: Column(
             children: [
               Expanded(
-                child: _isLoading
-                    ? Center(child: ProgressRing(activeColor: AppTheme.accent))
-                    : _error != null
-                        ? _buildErrorView()
-                        : _buildBody(),
+                child: WTSwitcher(
+                  stateKey: _isLoading
+                      ? 'loading'
+                      : failed
+                          ? 'error'
+                          : 'body',
+                  child: _isLoading
+                      ? _buildLoadingSkeleton()
+                      : failed
+                          ? _buildErrorView()
+                          : _buildBody(),
+                ),
               ),
-              WTBottomNav(items: workerNavItems(context, 2), activeIndex: 2),
             ],
           ),
         ),
@@ -90,12 +98,36 @@ class _StatusScreenState extends State<StatusScreen> {
     );
   }
 
+  /// Mirrors _buildBody's shape: traffic-light hero, then factor rows.
+  Widget _buildLoadingSkeleton() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s4, AppTheme.s4, AppTheme.s4, AppTheme.s6),
+      child: Semantics(
+        label: 'Loading your status',
+        liveRegion: true,
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            WTSkeleton(height: 132, radius: AppTheme.rLg),
+            SizedBox(height: AppTheme.s5),
+            WTSkeleton(width: 150, height: 12),
+            SizedBox(height: AppTheme.s3),
+            WTSkeletonList(count: 3, leading: false),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody() {
     final factors = (_statusData!['factors'] as List?) ?? const [];
-    final title = (_statusData!['status_title'] ?? 'PENDING').toString().toUpperCase();
+    final title =
+        (_statusData!['status_title'] ?? 'PENDING').toString().toUpperCase();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(AppTheme.s4, AppTheme.s4, AppTheme.s4, AppTheme.s6),
+      padding: const EdgeInsets.fromLTRB(
+          AppTheme.s4, AppTheme.s4, AppTheme.s4, AppTheme.s6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -104,7 +136,7 @@ class _StatusScreenState extends State<StatusScreen> {
             kind: _statusKind,
             label: title,
             subtitle: _statusKind == WTTagKind.green
-                ? 'Verified Â· Last checked ${_formatScannedAt()}'
+                ? 'Verified · Last checked ${_formatScannedAt()}'
                 : 'Last checked ${_formatScannedAt()}',
           ),
           const SizedBox(height: AppTheme.s3),
@@ -116,7 +148,8 @@ class _StatusScreenState extends State<StatusScreen> {
             child: Column(
               children: [
                 for (int i = 0; i < factors.length; i++)
-                  _factorRow(factors[i].toString(), last: i == factors.length - 1),
+                  _factorRow(factors[i].toString(),
+                      last: i == factors.length - 1),
               ],
             ),
           ),
@@ -133,14 +166,17 @@ class _StatusScreenState extends State<StatusScreen> {
   /// Renders one factor as an .lrow: label on the left (with an inline action
   /// link when something is missing) and a status tag on the right.
   Widget _factorRow(String factor, {required bool last}) {
-    final isNegative = factor.startsWith('MISSING') || factor.startsWith('PENDING');
-    final isMissingFace = factor.contains('Face') || factor.contains('liveness');
+    final isNegative =
+        factor.startsWith('MISSING') || factor.startsWith('PENDING');
+    final isMissingFace =
+        factor.contains('Face') || factor.contains('liveness');
     final isMissingDoc = factor.contains('document') ||
         factor.contains('Document') ||
         factor.contains('ID') ||
         factor.contains('Passport') ||
         factor.contains('License');
-    final clean = factor.replaceFirst(RegExp(r'^(MISSING|PENDING|VERIFIED):\s*'), '');
+    final clean =
+        factor.replaceFirst(RegExp(r'^(MISSING|PENDING|VERIFIED):\s*'), '');
     final showLink = isNegative && (isMissingDoc || isMissingFace);
 
     return WTListRow(
@@ -148,7 +184,11 @@ class _StatusScreenState extends State<StatusScreen> {
       leading: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(clean, style: TextStyle(color: AppTheme.ink, fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(clean,
+              style: TextStyle(
+                  color: AppTheme.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500)),
           if (showLink) ...[
             const SizedBox(height: 3),
             GestureDetector(
@@ -156,7 +196,10 @@ class _StatusScreenState extends State<StatusScreen> {
                   context, isMissingFace ? '/enroll/face' : '/documents'),
               child: Text(
                 isMissingFace ? 'Complete face scan' : 'Upload documents now ',
-                style: TextStyle(color: AppTheme.accentLight, fontSize: 12, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                    color: AppTheme.accentLight,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600),
               ),
             ),
           ],
@@ -171,9 +214,10 @@ class _StatusScreenState extends State<StatusScreen> {
 
   String _formatScannedAt() {
     try {
-      return DateFormat('MMM d Â· HH:mm').format(DateTime.parse(_statusData!['scanned_at']));
+      return DateFormat('MMM d · HH:mm')
+          .format(DateTime.parse(_statusData!['scanned_at']));
     } catch (_) {
-      return 'â€”';
+      return '—';
     }
   }
 
@@ -190,12 +234,17 @@ class _StatusScreenState extends State<StatusScreen> {
                 color: AppTheme.tint(AppTheme.error),
                 shape: BoxShape.circle,
               ),
-              child: Icon(FluentIcons.error, color: AppTheme.error, size: 36),
+              child: Icon(Icons.error_outline_rounded,
+                  color: AppTheme.error, size: 36),
             ),
             const SizedBox(height: AppTheme.s5),
-            Text(_error!, textAlign: TextAlign.center, style: AppTheme.bodyMuted),
+            Text(_error!,
+                textAlign: TextAlign.center, style: AppTheme.bodyMuted),
             const SizedBox(height: AppTheme.s5),
-            WTButton(label: 'Retry', icon: FluentIcons.refresh, onPressed: _fetchStatus),
+            WTButton(
+                label: 'Retry',
+                icon: Icons.refresh_rounded,
+                onPressed: _fetchStatus),
           ],
         ),
       ),
@@ -209,7 +258,7 @@ class _StatusScreenState extends State<StatusScreen> {
     if (title == 'NOT ENROLLED') {
       return WTButton(
         label: 'Start enrollment',
-        trailingIcon: FluentIcons.chevron_right,
+        trailingIcon: Icons.chevron_right_rounded,
         onPressed: () => Navigator.pushNamed(context, '/enroll'),
       );
     }
@@ -218,7 +267,7 @@ class _StatusScreenState extends State<StatusScreen> {
       return WTButton(
         label: 'Dispute status / Submit appeal',
         kind: WTButtonKind.danger,
-        icon: FluentIcons.warning,
+        icon: Icons.warning_amber_rounded,
         onPressed: () async {
           final result = await Navigator.pushNamed(context, '/enroll/appeal');
           if (result == true) _fetchStatus();

@@ -1,20 +1,25 @@
-﻿import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart';
+import 'package:cypurge_mobile/theme/platform.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/enrollment_service.dart';
 import '../utils/error_logger.dart';
+import '../utils/error_humanizer.dart';
+import '../utils/worker_files.dart' show documentTypeIcon;
 import 'document_capture_screen.dart';
+import 'face_liveness_screen.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_widgets.dart';
 import 'worker_nav.dart';
 
-/// US-031-2 â€” Document re-verification triggered by a `reverification_required`
+/// US-031-2 — Document re-verification triggered by a `reverification_required`
 /// push.
 ///
 /// Workflow this screen serves: HR reviews a worker's documents (e.g. expiry
 /// dates); the Analyst overrides the worker's status and flags, document by
 /// document, which ones are bad/expired. The worker then receives a task with a
 /// deadline and must **re-upload exactly the flagged documents**. There is no
-/// liveness step here â€” that belongs to the separate random/face-check flow.
+/// liveness step here — that belongs to the separate random/face-check flow.
 ///
 /// Each flagged document is captured and uploaded through [DocumentCaptureScreen],
 /// which already performs on-device quality checks (US-013-1) and the full
@@ -43,6 +48,22 @@ class ReVerificationScreen extends StatefulWidget {
 
 enum _Step { intro, submitting, success, failed }
 
+/// When this phone last submitted a re-verification (UTC, ISO-8601). The
+/// Re-verify tab skips any request that arrived before it — that one has been
+/// answered.
+const reverifyCompletedKey = 'reverify_completed_at';
+
+/// True when the analyst flagged a face/liveness re-check rather than a
+/// document. The item arrives as a display label inside the same text-encoded
+/// list as the documents (`Re-upload: Face scan (liveness). …`), so it is
+/// recognised by wording — matching how NextJs labels FACE_LIVENESS.
+bool isLivenessTask(String title) {
+  final t = title.toLowerCase();
+  return t.contains('liveness') ||
+      t.contains('face scan') ||
+      t.contains('face_liveness');
+}
+
 class _FlaggedDoc {
   _FlaggedDoc(this.title) : icon = _iconFor(title);
   final String title;
@@ -51,14 +72,11 @@ class _FlaggedDoc {
 
   static IconData _iconFor(String title) {
     final t = title.toLowerCase();
-    if (t.contains('passport')) return FluentIcons.airplane;
-    if (t.contains('license') || t.contains('licence')) return FluentIcons.car;
-    if (t.contains('id') ||
-        t.contains('identity') ||
-        t.contains('national')) {
-      return FluentIcons.contact_card;
-    }
-    return FluentIcons.document;
+    // Checked first: "Face scan (liveness)" carries no document keyword, and a
+    // liveness re-check must not read as a document to photograph.
+    if (isLivenessTask(t)) return Icons.fingerprint_rounded;
+    // Same icon as the Docs tab and the upload screen for the same document.
+    return documentTypeIcon(title);
   }
 }
 
@@ -77,11 +95,43 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
   bool get _allDone => _docs.isNotEmpty && _docs.every((d) => d.done);
   int get _doneCount => _docs.where((d) => d.done).length;
 
-  /// Capture + upload a single flagged document via [DocumentCaptureScreen].
-  /// Returns true when the document was uploaded (screen popped with a path).
+  /// HR asked only for a new face scan (the dashboard's one-click re-check):
+  /// nothing here is a document, so the copy must not talk about uploads.
+  bool get _faceOnly =>
+      _docs.isNotEmpty && _docs.every((d) => isLivenessTask(d.title));
+
+  /// Runs one flagged item. A liveness re-check opens [FaceLivenessScreen];
+  /// everything else is a document capture. Returns true when it completed.
   Future<bool> _captureDoc(_FlaggedDoc doc) async {
+    if (isLivenessTask(doc.title)) {
+      // FaceLivenessScreen needs the worker id and pops true/false, where the
+      // capture screen pops a file path.
+      final workerId =
+          await const FlutterSecureStorage().read(key: 'worker_id');
+      if (!mounted) return false;
+      if (workerId == null || workerId.isEmpty) {
+        // Without an id the challenge would be raised against nobody. Fail
+        // loudly in the log rather than opening a camera that can never pass.
+        ErrorLogger.log(
+            'Re-verification - Liveness',
+            StateError('worker_id missing from secure storage'),
+            StackTrace.current);
+        wtInfoBar(context, 'Cannot start the face check',
+            message: 'This device is not signed in to a worker account. '
+                'Sign out and back in, then try again.',
+            severity: WTSeverity.error);
+        return false;
+      }
+      final ok = await Navigator.of(context).push<bool>(
+        platformRoute(builder: (_) => FaceLivenessScreen(userId: workerId)),
+      );
+      if (ok != true) return false;
+      if (mounted) setState(() => doc.done = true);
+      return true;
+    }
+
     final path = await Navigator.of(context).push<String>(
-      FluentPageRoute(
+      platformRoute(
         builder: (_) => DocumentCaptureScreen(documentType: doc.title),
       ),
     );
@@ -102,7 +152,7 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
         final ok = await _captureDoc(doc);
         if (!mounted) return;
         if (!ok) {
-          // Worker backed out â€” stay on the list so they can resume.
+          // Worker backed out — stay on the list so they can resume.
           setState(() => _running = false);
           return;
         }
@@ -133,6 +183,10 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
         lon: 0.0,
       );
       await _service.getWorkerStatus();
+      // The request this answered stops showing on the Re-verify tab.
+      await const FlutterSecureStorage().write(
+          key: reverifyCompletedKey,
+          value: DateTime.now().toUtc().toIso8601String());
       if (!mounted) return;
       setState(() => _step = _Step.success);
     } catch (e, stack) {
@@ -140,7 +194,7 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
       if (mounted) {
         setState(() {
           _step = _Step.failed;
-          _error = e.toString().replaceAll('Exception: ', '');
+          _error = humanizeError(e, action: 'submit your re-verification');
         });
       }
     }
@@ -165,17 +219,9 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
-      header: PageHeader(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: IconButton(
-            icon: Icon(FluentIcons.chevron_left, color: AppTheme.ink, size: 18),
-            onPressed: () => Navigator.maybePop(context),
-          ),
-        ),
-        title: Text('Re-verification', style: AppTheme.h2),
-      ),
+    return WTPage(
+      nav: const WorkerNavBar(current: '/reverify'),
+      appBar: AppBar(title: const Text('Re-verification')),
       content: Container(
         color: AppTheme.bg,
         child: SafeArea(
@@ -186,14 +232,23 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
                   padding: const EdgeInsets.all(AppTheme.s4),
                   child: switch (_step) {
                     _Step.intro => _buildIntro(),
-                    _Step.submitting => _buildBusy('Submitting re-verificationâ€¦'),
-                    _Step.success => _buildResult(
-                        ok: true,
-                        title: 'Documents re-submitted',
-                        message:
-                            'Thanks â€” your updated documents have been uploaded for '
-                            'review. Your status will refresh once they are approved.',
-                      ),
+                    _Step.submitting =>
+                      _buildBusy('Submitting re-verification...'),
+                    _Step.success => _faceOnly
+                        ? _buildResult(
+                            ok: true,
+                            title: 'Face scan sent',
+                            message: 'Thanks — your new face scan has been '
+                                'sent. Your status will refresh once it is '
+                                'checked.',
+                          )
+                        : _buildResult(
+                            ok: true,
+                            title: 'Documents re-submitted',
+                            message:
+                                'Thanks — your updated documents have been uploaded for '
+                                'review. Your status will refresh once they are approved.',
+                          ),
                     _Step.failed => _buildResult(
                         ok: false,
                         title: 'Re-verification failed',
@@ -205,7 +260,6 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
                   },
                 ),
               ),
-              WTBottomNav(items: workerNavItems(context, 3), activeIndex: 3),
             ],
           ),
         ),
@@ -228,12 +282,14 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
             child: WTTag(
               deadlineLabel,
               kind: _overdue ? WTTagKind.red : WTTagKind.amber,
-              icon: FluentIcons.clock,
+              icon: Icons.schedule_rounded,
             ),
           ),
           const SizedBox(height: AppTheme.s4),
         ],
-        WTSectionLabel('Documents to re-upload ($_doneCount/${_docs.length})'),
+        WTSectionLabel(_faceOnly
+            ? 'Face scan'
+            : 'Documents to re-upload ($_doneCount/${_docs.length})'),
         Expanded(
           child: ListView.separated(
             itemCount: _docs.length,
@@ -243,10 +299,14 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
         ),
         const SizedBox(height: AppTheme.s3),
         WTButton(
-          label: _allDone
-              ? 'All documents uploaded'
-              : (_doneCount > 0 ? 'Continue re-uploading' : 'Start re-uploading'),
-          trailingIcon: _allDone ? null : FluentIcons.chevron_right,
+          label: _faceOnly
+              ? (_allDone ? 'Face scan done' : 'Start face scan')
+              : _allDone
+                  ? 'All documents uploaded'
+                  : (_doneCount > 0
+                      ? 'Continue re-uploading'
+                      : 'Start re-uploading'),
+          trailingIcon: _allDone ? null : Icons.chevron_right_rounded,
           onPressed: (_running || _allDone) ? null : _runRemaining,
           loading: _running,
         ),
@@ -255,7 +315,7 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
           WTButton(
             label: 'Submit for review',
             kind: WTButtonKind.primary,
-            icon: FluentIcons.completed,
+            icon: Icons.check_circle_outline_rounded,
             onPressed: _submit,
           ),
         ],
@@ -279,7 +339,7 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
               shape: BoxShape.circle,
             ),
             child: Icon(
-              done ? FluentIcons.check_mark : doc.icon,
+              done ? Icons.check_rounded : doc.icon,
               color: done ? AppTheme.success : AppTheme.accent,
               size: 18,
             ),
@@ -291,10 +351,14 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
               children: [
                 Text(doc.title,
                     style: TextStyle(
-                        color: AppTheme.ink, fontSize: 15, fontWeight: FontWeight.w600)),
+                        color: AppTheme.ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
                 Text(
-                  done ? 'Uploaded' : 'Flagged tap to re-upload',
+                  isLivenessTask(doc.title)
+                      ? (done ? 'Done' : 'Requested · tap to start')
+                      : (done ? 'Uploaded' : 'Flagged · tap to re-upload'),
                   style: TextStyle(
                     color: done ? AppTheme.success : AppTheme.faint,
                     fontSize: 12,
@@ -315,7 +379,7 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ProgressRing(activeColor: AppTheme.accent),
+          WTSpinner(activeColor: AppTheme.accent),
           const SizedBox(height: AppTheme.s5),
           Text(label, style: AppTheme.h2),
         ],
@@ -329,6 +393,14 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
     required String message,
   }) {
     final color = ok ? AppTheme.success : AppTheme.error;
+    // Scrolls when a long error message outgrows the screen.
+    return WTFormBody(
+      padding: EdgeInsets.zero,
+      child: _resultColumn(ok, color, title, message),
+    );
+  }
+
+  Widget _resultColumn(bool ok, Color color, String title, String message) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -340,8 +412,12 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
               color: AppTheme.tint(color),
               shape: BoxShape.circle,
             ),
-            child: Icon(ok ? FluentIcons.completed : FluentIcons.error,
-                color: color, size: 48),
+            child: Icon(
+                ok
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.error_outline_rounded,
+                color: color,
+                size: 48),
           ),
         ),
         const SizedBox(height: AppTheme.s5),
@@ -352,7 +428,7 @@ class _ReVerificationScreenState extends State<ReVerificationScreen> {
         if (!ok) ...[
           WTButton(
             label: 'Try again',
-            icon: FluentIcons.refresh,
+            icon: Icons.refresh_rounded,
             onPressed: () => setState(() => _step = _Step.intro),
           ),
           const SizedBox(height: AppTheme.s3),

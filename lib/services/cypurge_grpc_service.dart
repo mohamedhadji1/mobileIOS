@@ -11,8 +11,17 @@ import '../generated/worker/v1/worker.pbgrpc.dart';
 import '../generated/biometric/v1/biometric.pbgrpc.dart';
 import '../generated/risk/v1/risk.pbgrpc.dart';
 import '../generated/document/v1/document.pbgrpc.dart';
+import '../generated/case/v1/case.pbgrpc.dart';
 import '../config/constants.dart';
 import '../utils/error_logger.dart';
+import 'device_key_service.dart';
+
+/// How long the app waits for VerifyDocumentUpload. Always longer than the
+/// backend's own ML timeout (DOCUMENT_CHECK_TIMEOUT_SECONDS, 130 s), so a slow
+/// ML comes back as the backend's "busy, try again" instead of the app giving
+/// up first with a bare DEADLINE_EXCEEDED.
+Duration documentCheckDeadline({required bool twoSided}) =>
+    Duration(seconds: twoSided ? 190 : 150);
 
 /// Comprehensive gRPC and OIDC Client for the WorkerTrust Identity Flow.
 ///
@@ -23,8 +32,7 @@ import '../utils/error_logger.dart';
 /// 4. Face Enrollment via [BiometricService.EnrollFace] using local face hash.
 /// 5. Biometric Sign-in/Verification via [BiometricService.SearchCollisions].
 class CypurgeGrpcService {
-  static final CypurgeGrpcService _instance =
-      CypurgeGrpcService._internal();
+  static final CypurgeGrpcService _instance = CypurgeGrpcService._internal();
   factory CypurgeGrpcService() => _instance;
   CypurgeGrpcService._internal();
 
@@ -40,6 +48,11 @@ class CypurgeGrpcService {
   BiometricServiceClient? _biometricClient;
   RiskServiceClient? _riskClient;
   DocumentServiceClient? _documentClient;
+  // Case service is gateway-only — there is no direct-dial port for it, and the
+  // gateway proxies SubmitAppeal / ListReverificationRequests.
+  CaseServiceClient? _caseClient;
+  QualificationServiceClient? _qualificationClient;
+  EmploymentServiceClient? _employmentClient;
 
   bool _isInitialized = false;
 
@@ -54,6 +67,10 @@ class CypurgeGrpcService {
   ///
   /// Set [useGateway] to true to point all services to the Unified Gateway (port 30050).
   /// Set [useGateway] to false to talk directly to the microservices on their respective ports.
+  // Last-applied config — lets init() no-op when nothing changed.
+  String? _initHost;
+  bool? _initUseGateway;
+
   void init({
     String? host,
     int gatewayPort = defaultGatewayPort,
@@ -63,6 +80,19 @@ class CypurgeGrpcService {
     bool useGateway = true,
   }) {
     final activeHost = host ?? AppConfig.host;
+
+    // Idempotent: every call site runs init() before each RPC. Recreating
+    // channels each time scheduled a shutdown of the channel a concurrent
+    // caller's RPC was still in flight on → "Connection shutting down"
+    // (UNAVAILABLE). Same host+mode = keep the existing channels; dart-grpc
+    // reconnects dropped transports on its own.
+    if (_isInitialized &&
+        _initHost == activeHost &&
+        _initUseGateway == useGateway) {
+      return;
+    }
+    _initHost = activeHost;
+    _initUseGateway = useGateway;
 
     if (_isInitialized) {
       final oldGateway = _gatewayChannel;
@@ -102,6 +132,9 @@ class CypurgeGrpcService {
       _biometricClient = BiometricServiceClient(_gatewayChannel!);
       _riskClient = RiskServiceClient(_gatewayChannel!);
       _documentClient = DocumentServiceClient(_gatewayChannel!);
+      _caseClient = CaseServiceClient(_gatewayChannel!);
+      _qualificationClient = QualificationServiceClient(_gatewayChannel!);
+      _employmentClient = EmploymentServiceClient(_gatewayChannel!);
     } else {
       debugPrint('📡 Initializing direct gRPC channels:');
       debugPrint('  - Platform Service: $activeHost:$platformPort');
@@ -110,29 +143,100 @@ class CypurgeGrpcService {
 
       _gatewayChannel =
           ClientChannel(activeHost, port: gatewayPort, options: channelOptions);
-      _platformDirectChannel =
-          ClientChannel(activeHost, port: platformPort, options: channelOptions);
+      _platformDirectChannel = ClientChannel(activeHost,
+          port: platformPort, options: channelOptions);
       _workerDirectChannel =
           ClientChannel(activeHost, port: workerPort, options: channelOptions);
-      _biometricDirectChannel =
-          ClientChannel(activeHost, port: biometricPort, options: channelOptions);
+      _biometricDirectChannel = ClientChannel(activeHost,
+          port: biometricPort, options: channelOptions);
 
       _platformClient = PlatformServiceClient(_platformDirectChannel!);
       _workerClient = WorkerServiceClient(_workerDirectChannel!);
       _biometricClient = BiometricServiceClient(_biometricDirectChannel!);
       _riskClient = RiskServiceClient(_gatewayChannel!);
       _documentClient = DocumentServiceClient(_gatewayChannel!);
+      // Case has no direct-dial port; always via the gateway.
+      _caseClient = CaseServiceClient(_gatewayChannel!);
+      _qualificationClient = QualificationServiceClient(_gatewayChannel!);
+      _employmentClient = EmploymentServiceClient(_gatewayChannel!);
     }
 
     _isInitialized = true;
   }
 
-  /// Helper to generate call options with JWT Authorization metadata
-  CallOptions _getCallOptions(String token) {
+  /// Runs [action], retrying once after a transient transport failure.
+  ///
+  /// A rolling deploy makes every replica send GOAWAY and drop its in-flight
+  /// HTTP/2 streams, which reaches the client as UNAVAILABLE or as UNKNOWN
+  /// carrying "Connection is being forcefully terminated" (CONNECT_ERROR). The
+  /// request itself was fine, so a single retry rides out the restart instead of
+  /// stranding the worker mid-enrollment.
+  ///
+  /// Safe for CreateKeycloakUser specifically, even though it is a write: if the
+  /// first attempt did reach Keycloak before the connection died, the retry
+  /// simply conflicts (409) and the password the first attempt set is already in
+  /// place, so the subsequent login still succeeds.
+  Future<T> _retryOnceOnTransport<T>(
+      String label, Future<T> Function() action) async {
+    try {
+      return await action();
+    } on GrpcError catch (e) {
+      final isTransient = e.code == StatusCode.unavailable ||
+          (e.code == StatusCode.unknown &&
+              (e.message ?? '').contains('Connection'));
+      if (!isTransient) rethrow;
+      debugPrint('🔁 $label hit a transient transport error '
+          '(${e.codeName}) — retrying once in 2s…');
+      await Future.delayed(const Duration(seconds: 2));
+      return await action();
+    }
+  }
+
+  /// Helper to generate call options with JWT Authorization metadata.
+  /// [timeout] overrides the 15s default for large-payload calls
+  /// (VerifyLiveness ships a ~36MB clip + frames — needs minutes, not seconds).
+  CallOptions _getCallOptions(String token,
+      {Duration timeout = const Duration(seconds: 15)}) {
+    final id = deviceId;
+    final hasId = id != null && id.isNotEmpty;
     return CallOptions(
-      metadata: {'authorization': 'Bearer $token'},
-      timeout: const Duration(seconds: 15),
+      metadata: {
+        'authorization': 'Bearer $token',
+        // One login per phone: the backend refuses a worker call from a phone
+        // that is not the worker's active one. Ignored until it enforces it.
+        if (hasId) 'x-device-id': id,
+      },
+      providers: hasId ? const [_signDevice] : null,
+      timeout: timeout,
     );
+  }
+
+  /// This phone's device id, set by DeviceIdentityService.getDeviceId().
+  static String? deviceId;
+
+  static ({String id, int ts, String sig})? _deviceSig;
+
+  /// Proves x-device-id came from this phone: the device key signs
+  /// canonical JSON {"device_id","ts"} (same key and format as telemetry,
+  /// which RegisterDevice already stored). Reused for a minute — one ECDSA
+  /// sign per call is wasted work and the backend allows ±5 min.
+  static Future<void> _signDevice(Map<String, String> metadata, String uri) async {
+    final id = metadata['x-device-id'];
+    if (id == null) return;
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      var cached = _deviceSig;
+      if (cached == null || cached.id != id || now - cached.ts > 60000) {
+        final sig = await DeviceKeyService().signCanonicalHex({'device_id': id, 'ts': now});
+        cached = _deviceSig = (id: id, ts: now, sig: sig);
+      }
+      metadata['x-device-ts'] = '${cached.ts}';
+      metadata['x-device-sig'] = cached.sig;
+    } catch (e) {
+      // Never fail the call over it; the backend decides what an unsigned
+      // request is worth.
+      debugPrint('⚠️ Device signature skipped: $e');
+    }
   }
 
   /// 1. Keycloak Direct Password Login Helper (Resource Owner Password Credentials Grant)
@@ -207,15 +311,20 @@ class CypurgeGrpcService {
   }) async {
     _checkInit();
     try {
-      debugPrint('👤 Calling WorkerService.ValidateInvitation (Tenant: $tenant, Token: $token)...');
+      // Tenant only. The invitation token is a credential, and debugPrint
+      // survives into release builds — logging it puts it in logcat.
+      debugPrint(
+          '👤 Calling WorkerService.ValidateInvitation (Tenant: $tenant)...');
       final request = ValidateInvitationRequest()
         ..token = token
         ..tenant = tenant;
 
-      final response = await _workerClient!.validateInvitation(
-        request,
+      final response = await _retryOnceOnTransport(
+        'ValidateInvitation',
+        () => _workerClient!.validateInvitation(request),
       );
-      debugPrint('✅ ValidateInvitation Succeeded. Invitation ID: ${response.invitationId}');
+      debugPrint(
+          '✅ ValidateInvitation Succeeded. Invitation ID: ${response.invitationId}');
       return response;
     } catch (e, stack) {
       ErrorLogger.log('WorkerService.ValidateInvitation', e, stack);
@@ -234,6 +343,9 @@ class CypurgeGrpcService {
     required String givenNames,
     required String nationality,
     required ProfileType profileType,
+    // YYYY-MM-DD. The backend enforces 18–60 whenever it is sent; empty leaves
+    // it unset.
+    String dateOfBirth = '',
   }) async {
     _checkInit();
     try {
@@ -244,7 +356,8 @@ class CypurgeGrpcService {
         ..surname = surname
         ..givenNames = givenNames
         ..nationality = nationality
-        ..profileType = profileType;
+        ..profileType = profileType
+        ..dateOfBirth = dateOfBirth;
 
       final response = await _workerClient!.enrollWorker(
         request,
@@ -273,7 +386,8 @@ class CypurgeGrpcService {
   }) async {
     _checkInit();
     try {
-      debugPrint('📱 Calling WorkerService.RegisterDevice (Worker: $workerId)...');
+      debugPrint(
+          '📱 Calling WorkerService.RegisterDevice (Worker: $workerId)...');
       final request = RegisterDeviceRequest()
         ..workerId = workerId
         ..deviceId = deviceId
@@ -293,6 +407,187 @@ class CypurgeGrpcService {
     } catch (e, stack) {
       ErrorLogger.log('WorkerService.RegisterDevice', e, stack);
       rethrow;
+    }
+  }
+
+  /// Asks HR for a new phone, from the phone bound now
+  /// ([WorkerService.RequestDeviceSwap]). UNIMPLEMENTED until the backend
+  /// ships it.
+  Future<RequestDeviceSwapResponse> requestDeviceSwap({
+    required String token,
+    required String workerId,
+    required String deviceId,
+    required String reason,
+  }) {
+    _checkInit();
+    return _workerClient!.requestDeviceSwap(
+      RequestDeviceSwapRequest(
+          workerId: workerId, deviceId: deviceId, reason: reason),
+      options: _getCallOptions(token),
+    );
+  }
+
+  /// What the backend holds for this phone ([WorkerService.GetMyDeviceStatus]):
+  /// ACTIVE | PENDING | REJECTED | REPLACED | NONE. UNIMPLEMENTED until the
+  /// backend ships it.
+  Future<GetMyDeviceStatusResponse> getMyDeviceStatus({
+    required String token,
+    required String workerId,
+    required String deviceId,
+  }) {
+    _checkInit();
+    return _workerClient!.getMyDeviceStatus(
+      GetMyDeviceStatusRequest(workerId: workerId, deviceId: deviceId),
+      options: _getCallOptions(token),
+    );
+  }
+
+  /// Starts a shift ([WorkerService.StartShift]). Call right after a passed
+  /// face check: the backend wants a fresh PASS. UNIMPLEMENTED until built.
+  Future<StartShiftResponse> startShift({
+    required String token,
+    required String workerId,
+    required String deviceId,
+    required double latitude,
+    required double longitude,
+  }) {
+    _checkInit();
+    return _workerClient!.startShift(
+      StartShiftRequest(
+          workerId: workerId,
+          deviceId: deviceId,
+          latitude: latitude,
+          longitude: longitude),
+      options: _getCallOptions(token),
+    );
+  }
+
+  /// Ends the shift [shiftId] ([WorkerService.EndShift]).
+  Future<EndShiftResponse> endShift({
+    required String token,
+    required String workerId,
+    required String shiftId,
+    required double latitude,
+    required double longitude,
+  }) {
+    _checkInit();
+    return _workerClient!.endShift(
+      EndShiftRequest(
+          workerId: workerId,
+          shiftId: shiftId,
+          latitude: latitude,
+          longitude: longitude),
+      options: _getCallOptions(token),
+    );
+  }
+
+  /// Provisions (or returns) this worker's Gotify receive credential via
+  /// [WorkerService.ProvisionPushTarget] — the live push path.
+  ///
+  /// The backend creates a Gotify **user** per worker, keeps that user's
+  /// application token server-side to send, and returns only the **client**
+  /// token, which can stream this worker's messages and cannot originate one.
+  /// So the device holds nothing forgeable, and a worker cannot see another
+  /// worker's notifications.
+  ///
+  /// Idempotent: an already-provisioned device gets its existing identity back,
+  /// so this is safe to call on every login.
+  ///
+  /// [deviceId] must be the same fingerprint passed to [registerDevice] — the
+  /// backend matches on `fingerprint_hash` and answers NOT_FOUND otherwise.
+  ///
+  /// Returns null instead of throwing; every failure here is non-fatal, and the
+  /// caller falls back to whatever token it already had:
+  /// - `FAILED_PRECONDITION` — ops has not enabled server provisioning
+  /// - `NOT_FOUND` — RegisterDevice has not run for this device
+  /// - `PERMISSION_DENIED` — token targets another worker
+  Future<({String clientToken, String streamUrl})?> provisionPushTarget({
+    required String token,
+    required String workerId,
+    required String deviceId,
+  }) async {
+    _checkInit();
+    try {
+      debugPrint('🔑 Calling WorkerService.ProvisionPushTarget...');
+      final response = await _workerClient!.provisionPushTarget(
+        ProvisionPushTargetRequest()
+          ..workerId = workerId
+          ..deviceId = deviceId,
+        options: _getCallOptions(token),
+      );
+      if (response.clientToken.isEmpty) {
+        debugPrint('⚠️ ProvisionPushTarget returned an empty client token.');
+        return null;
+      }
+      // Never log the token itself — it grants read access to this worker's
+      // whole notification stream.
+      debugPrint('✅ Push target provisioned (stream: ${response.streamUrl}).');
+      return (
+        clientToken: response.clientToken,
+        streamUrl: response.streamUrl,
+      );
+    } catch (e, stack) {
+      ErrorLogger.log('WorkerService.ProvisionPushTarget', e, stack);
+      return null;
+    }
+  }
+
+  /// Registers this device's push destination via
+  /// [WorkerService.RegisterPushToken] so the backend's dispatcher can reach it.
+  ///
+  /// ponytail: NOT on the live path. Path D provisions a per-worker Gotify
+  /// identity that this app streams directly, so nothing calls this today. Kept
+  /// because the backend documents it as the supported fallback ingest
+  /// (hand-off rev 2 §11), and re-adding it would mean regenerating the proto
+  /// stubs again. Delete it if that fallback is ever dropped.
+  ///
+  /// [deviceId] must be the same fingerprint passed to [registerDevice] — the
+  /// backend resolves it to the device row and answers NOT_FOUND otherwise, so
+  /// RegisterDevice has to have succeeded first.
+  ///
+  /// [endpointUrl] is the UnifiedPush endpoint, which is the path we use. The
+  /// backend POSTs each notification straight there, which is why nothing on
+  /// this device ever holds a Gotify send credential. [gotifyToken] is the
+  /// app-token fallback from the backend hand-off §6 and stays empty here; the
+  /// backend prefers the endpoint when both are set, and rejects the call with
+  /// INVALID_ARGUMENT when neither is.
+  ///
+  /// Returns true when the backend accepted it. Never throws — failing to
+  /// register for push must not stop a worker using the app.
+  Future<bool> registerPushToken({
+    required String token,
+    required String workerId,
+    required String deviceId,
+    String endpointUrl = '',
+    String gotifyToken = '',
+    String source = 'MOBILE',
+  }) async {
+    _checkInit();
+    try {
+      if (endpointUrl.isEmpty && gotifyToken.isEmpty) {
+        debugPrint('⚠️ RegisterPushToken skipped: no endpoint and no token.');
+        return false;
+      }
+      // Log the host only. A UnifiedPush endpoint carries the distributor's
+      // per-device secret in its path/query, so printing the full URL would put
+      // a delivery credential into logcat.
+      final host = Uri.tryParse(endpointUrl)?.host ?? '(none)';
+      debugPrint('📮 Calling WorkerService.RegisterPushToken (host: $host)...');
+      final request = RegisterPushTokenRequest()
+        ..workerId = workerId
+        ..deviceId = deviceId
+        ..endpointUrl = endpointUrl
+        ..gotifyToken = gotifyToken
+        ..source = source;
+      final response = await _workerClient!.registerPushToken(
+        request,
+        options: _getCallOptions(token),
+      );
+      debugPrint('✅ RegisterPushToken accepted=${response.accepted}');
+      return response.accepted;
+    } catch (e, stack) {
+      ErrorLogger.log('WorkerService.RegisterPushToken', e, stack);
+      return false;
     }
   }
 
@@ -462,12 +757,14 @@ class CypurgeGrpcService {
   }) async {
     _checkInit();
     try {
-      debugPrint('🔍 Sign-In: Using stored enrollment hash for identity lookup...');
+      debugPrint(
+          '🔍 Sign-In: Using stored enrollment hash for identity lookup...');
       debugPrint('🧬 Stored Enrollment Hash (SHA-256): $embeddingHash');
 
       final request = SearchCollisionsRequest()..embeddingHash = embeddingHash;
 
-      debugPrint('📡 Querying BiometricService.SearchCollisions (stored hash)...');
+      debugPrint(
+          '📡 Querying BiometricService.SearchCollisions (stored hash)...');
       final response = await _biometricClient!.searchCollisions(
         request,
         options: _getCallOptions(token),
@@ -486,6 +783,229 @@ class CypurgeGrpcService {
     }
   }
 
+  /// Fetches a fresh liveness challenge (challenge_id + ordered steps) from the
+  /// backend. Call this before starting the on-device gesture sequence so the
+  /// captured frames can be tied to a server-issued challenge (anti-replay).
+  Future<GetChallengeResponse> getChallenge({required String token}) async {
+    _checkInit();
+    // 60s, not the shared 15s default. GetChallenge fans out to three hops
+    // (platform CheckPermission -> ML gateway /m5/challenge -> Valkey) and at
+    // 15s a merely-slow path and an unreachable one present as an identical
+    // DEADLINE_EXCEEDED. The elapsed log below is the discriminator: under 15s
+    // means it now works, 15-60s means slow-but-reachable, a 60s failure means
+    // genuinely blackholed. Revisit once the offending hop is known.
+    final sw = Stopwatch()..start();
+    try {
+      final res = await _biometricClient!.getChallenge(GetChallengeRequest(),
+          options:
+              _getCallOptions(token, timeout: const Duration(seconds: 60)));
+      debugPrint('🎲 GetChallenge OK in ${sw.elapsedMilliseconds}ms '
+          'id=${res.challengeId} steps=${res.steps}');
+      return res;
+    } catch (e, stack) {
+      debugPrint('🎲 GetChallenge FAILED after ${sw.elapsedMilliseconds}ms');
+      ErrorLogger.log('BiometricService.GetChallenge', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Presigned GET URL for the selfie the backend retained in MinIO.
+  ///
+  /// The biometric service copies the session's `doc_face.jpg` to a durable
+  /// `biometric-evidence/{tenant}/{worker}/{session}.jpg` key that survives
+  /// session cleanup, and this hands back a short-lived GET for it. It is the
+  /// only server-side source of the worker's own face the app can reach.
+  ///
+  /// Returns null rather than throwing on every failure path — including
+  /// PERMISSION_DENIED, which is what a mobile WORKER token gets today
+  /// (the handler requires `worker:view`; the WORKER role holds only
+  /// `worker:view_self`). The avatar falls back to initials, so a missing
+  /// picture must never surface as an error.
+  Future<String?> getBiometricEvidenceUrl({
+    required String token,
+    required String tenantId,
+    required String workerId,
+  }) async {
+    _checkInit();
+    try {
+      final res = await _biometricClient!.getBiometricEvidenceURL(
+        GetBiometricEvidenceURLRequest(tenantId: tenantId, workerId: workerId),
+        options: _getCallOptions(token),
+      );
+      return res.url.isEmpty ? null : res.url;
+    } catch (e) {
+      debugPrint('🖼️ evidence URL unavailable: $e');
+      return null;
+    }
+  }
+
+  /// Opens the interactive sequential-liveness bidi stream (replaces the
+  /// retired VerifyLiveness + GetLivenessResult upload/poll pair).
+  ///
+  /// Caller sends one LivenessClientMsg.start first, then a continuous flow of
+  /// LivenessClientMsg.frame (~6 fps JPEG) on [messages]; the server pushes
+  /// step / step_passed / step_timeout transitions and terminates the stream
+  /// right after the final result message.
+  ResponseStream<LivenessServerMsg> streamLiveness({
+    required String token,
+    required Stream<LivenessClientMsg> messages,
+  }) {
+    _checkInit();
+    return _biometricClient!.streamLiveness(messages,
+        options: _getCallOptions(token, timeout: const Duration(minutes: 5)));
+  }
+
+  /// Creates the worker's Keycloak account server-side via
+  /// [PlatformService.CreateKeycloakUser].
+  ///
+  /// Deliberately UNAUTHENTICATED: at this point in enrollment the worker has no
+  /// token yet. Platform whitelists this RPC out of auth and, on the
+  /// unauthenticated path, restricts the role it will mint to
+  /// worker/subcontractor_admin — so this cannot be used to create an ADMIN.
+  ///
+  /// This replaces a flow that shipped Keycloak MASTER ADMIN credentials inside
+  /// the APK and drove the Keycloak admin REST API straight from the device.
+  Future<CreateKeycloakUserResponse> createKeycloakUser({
+    required String tenantId,
+    required String email,
+    required String password,
+    String firstName = '',
+    String lastName = '',
+    String appRole = 'WORKER',
+  }) async {
+    _checkInit();
+    try {
+      final req = CreateKeycloakUserRequest()
+        ..tenantId = tenantId
+        ..email = email
+        ..password = password
+        ..firstName = firstName
+        ..lastName = lastName
+        ..appRole = appRole;
+      // No CallOptions: this call carries no bearer token by design.
+      final res = await _retryOnceOnTransport(
+        'CreateKeycloakUser',
+        () => _platformClient!.createKeycloakUser(req,
+            options: CallOptions(timeout: const Duration(seconds: 20))),
+      );
+      // An empty id means the backend reported success without creating
+      // anything: its Keycloak adapter returns ("", nil) when the POST hit a
+      // 409 and the follow-up username lookup then found nothing. Left
+      // unchecked this surfaces later as an unexplainable "Invalid user
+      // credentials" at login, so fail here where the cause is still legible.
+      if (res.keycloakUserId.isEmpty) {
+        throw Exception(
+            'Account provisioning reported success but returned no Keycloak '
+            'user id — the account was not created.');
+      }
+      debugPrint(
+          '👤 CreateKeycloakUser OK (role=$appRole, id=${res.keycloakUserId})');
+      return res;
+    } catch (e, stack) {
+      ErrorLogger.log('PlatformService.CreateKeycloakUser', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Resolves the tenant's Keycloak realm without needing its slug, via the
+  /// auth-whitelisted [PlatformService.ResolveRealm]. Returns an empty response
+  /// rather than an error for an unknown tenant — the backend deliberately does
+  /// not leak existence.
+  Future<ResolveRealmResponse> resolveRealm({
+    String email = '',
+    String tenantId = '',
+  }) async {
+    _checkInit();
+    try {
+      final req = ResolveRealmRequest()
+        ..email = email
+        ..tenantId = tenantId;
+      final res = await _retryOnceOnTransport(
+        'ResolveRealm',
+        () => _platformClient!.resolveRealm(req,
+            options: CallOptions(timeout: const Duration(seconds: 20))),
+      );
+      debugPrint('🏷️ ResolveRealm → realm=${res.keycloakRealmId}');
+      return res;
+    } catch (e, stack) {
+      ErrorLogger.log('PlatformService.ResolveRealm', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Triggers Keycloak's password-reset email via the auth-whitelisted
+  /// [PlatformService.ForgotPassword]. Carries no bearer token by design — the
+  /// worker has no session yet, which is the whole reason they need this.
+  /// [tenantId] is optional; the backend resolves it from the email when empty.
+  Future<ForgotPasswordResponse> forgotPassword({
+    required String email,
+    String tenantId = '',
+  }) async {
+    _checkInit();
+    try {
+      final req = ForgotPasswordRequest()
+        ..email = email
+        ..tenantId = tenantId;
+      final res = await _platformClient!.forgotPassword(req,
+          options: CallOptions(timeout: const Duration(seconds: 20)));
+      debugPrint('📧 ForgotPassword requested (success=${res.success})');
+      return res;
+    } catch (e, stack) {
+      ErrorLogger.log('PlatformService.ForgotPassword', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Files a worker's dispute against an adverse decision via
+  /// [CaseService.SubmitAppeal]. The backend opens a case and (usually) an
+  /// accompanying re-verification request, returning both ids.
+  Future<SubmitAppealResponse> submitAppeal({
+    required String token,
+    required String tenantId,
+    required String workerId,
+    required String reason,
+    required String description,
+  }) async {
+    _checkInit();
+    try {
+      final req = SubmitAppealRequest()
+        ..tenantId = tenantId
+        ..workerId = workerId
+        ..reason = reason
+        ..description = description;
+      final res =
+          await _caseClient!.submitAppeal(req, options: _getCallOptions(token));
+      debugPrint('📤 SubmitAppeal OK: case=${res.caseId}');
+      return res;
+    } catch (e, stack) {
+      ErrorLogger.log('CaseService.SubmitAppeal', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Lists re-verification requests via [CaseService.ListReverificationRequests].
+  ///
+  /// The RPC is scoped to a TENANT, not a worker — it has no worker_id filter —
+  /// so callers showing a worker their own tasks must filter the result by
+  /// worker_id themselves. See the note in BACKEND_HANDOFF_GETCHALLENGE.md: this
+  /// RPC also skips rbac.Require server-side, so a WORKER token can read it.
+  Future<ListReverificationRequestsResponse> listReverificationRequests({
+    required String token,
+    required String tenantId,
+  }) async {
+    _checkInit();
+    try {
+      final req = ListReverificationRequestsRequest()..tenantId = tenantId;
+      final res = await _caseClient!
+          .listReverificationRequests(req, options: _getCallOptions(token));
+      debugPrint('📋 ListReverificationRequests: ${res.items.length} item(s)');
+      return res;
+    } catch (e, stack) {
+      ErrorLogger.log('CaseService.ListReverificationRequests', e, stack);
+      rethrow;
+    }
+  }
+
   /// 6. Get Risk Assessment
   ///
   /// Calls [RiskService.GetRiskAssessment] to retrieve the current risk factors, status, and traffic light level.
@@ -496,7 +1016,8 @@ class CypurgeGrpcService {
   }) async {
     _checkInit();
     try {
-      debugPrint('🛡️ Calling RiskService.GetRiskAssessment (WorkerID: $workerId, TenantID: $tenantId)...');
+      debugPrint(
+          '🛡️ Calling RiskService.GetRiskAssessment (WorkerID: $workerId, TenantID: $tenantId)...');
       final request = GetRiskAssessmentRequest()
         ..workerId = workerId
         ..tenantId = tenantId;
@@ -505,8 +1026,20 @@ class CypurgeGrpcService {
         request,
         options: _getCallOptions(token),
       );
-      debugPrint('✅ GetRiskAssessment Succeeded. Traffic Light: ${response.trafficLight}, Status: ${response.status}');
+      debugPrint(
+          '✅ GetRiskAssessment Succeeded. Traffic Light: ${response.trafficLight}, Status: ${response.status}');
       return response;
+    } on GrpcError catch (e) {
+      // A timeout or an unreachable server is an ordinary phone condition, not
+      // a defect: log one line instead of a full error banner with a stack
+      // trace. The caller still gets the exception and decides what to show.
+      if (e.code == StatusCode.deadlineExceeded ||
+          e.code == StatusCode.unavailable) {
+        debugPrint('🛡️ GetRiskAssessment unreachable (${e.codeName})');
+        rethrow;
+      }
+      ErrorLogger.log('RiskService.GetRiskAssessment', e, StackTrace.current);
+      rethrow;
     } catch (e, stack) {
       ErrorLogger.log('RiskService.GetRiskAssessment', e, stack);
       rethrow;
@@ -533,6 +1066,10 @@ class CypurgeGrpcService {
     required String tenantId,
     required String workerId,
     required String fileExt,
+    // Real doc type (PASSPORT/ID/...) so the processing workflow starts with
+    // it and M4 gets the right doc_format instead of slow auto-classify.
+    // Empty -> backend falls back to generic DOCUMENT.
+    String docType = '',
   }) async {
     _checkInit();
     if (_documentClient == null) {
@@ -543,8 +1080,10 @@ class CypurgeGrpcService {
         tenantId: tenantId,
         workerId: workerId,
         fileExt: fileExt,
+        docType: docType,
       );
-      return await _documentClient!.generateUploadURL(req, options: _getCallOptions(token));
+      return await _documentClient!
+          .generateUploadURL(req, options: _getCallOptions(token));
     } catch (e, stack) {
       ErrorLogger.log('DocumentService.GenerateUploadURL', e, stack);
       rethrow;
@@ -565,7 +1104,8 @@ class CypurgeGrpcService {
         objectKey: objectKey,
         docType: docType,
       );
-      return await _documentClient!.confirmUpload(req, options: _getCallOptions(token));
+      return await _documentClient!
+          .confirmUpload(req, options: _getCallOptions(token));
     } catch (e, stack) {
       // The processing workflow can finalize on its own (MinIO upload webhook)
       // before this explicit confirm arrives. Signalling an already-finished
@@ -573,7 +1113,8 @@ class CypurgeGrpcService {
       // it as success instead of failing the whole upload.
       if (e is GrpcError &&
           (e.message?.contains('already completed') ?? false)) {
-        debugPrint('ℹ️ ConfirmUpload: workflow already finalized — treating as success.');
+        debugPrint(
+            'ℹ️ ConfirmUpload: workflow already finalized — treating as success.');
         return ConfirmUploadResponse();
       }
       ErrorLogger.log('DocumentService.ConfirmUpload', e, stack);
@@ -581,10 +1122,182 @@ class CypurgeGrpcService {
     }
   }
 
+  /// DocumentService.VerifyDocumentUpload: checks an uploaded file against the
+  /// button it was uploaded under (passport, cv, diploma…). Every upload must
+  /// go through it — the backend holds the file in AWAITING_CHECK, deletes it
+  /// after 30 minutes otherwise, and ParseCv / SubmitQualification refuse an
+  /// unchecked file. Blocks while the ML gateway reads the file: ID cards read
+  /// by OCR take up to ~1.5 minutes, hence the longer deadline for them.
+  ///
+  /// [selfie]: the worker's selfie, for an identity document. The gateway then
+  /// also compares the face on the document with it, and the backend stores
+  /// the result for HR (DocumentReviewItem.face_band). It never refuses a
+  /// document on its own.
+  Future<VerifyDocumentUploadResponse> verifyDocumentUpload({
+    required String token,
+    required String objectKey,
+    required String expectedType,
+    String backObjectKey = '',
+    List<int>? selfie,
+  }) async {
+    _checkInit();
+    if (_documentClient == null) {
+      throw StateError('DocumentServiceClient is not initialized.');
+    }
+    final twoSided =
+        expectedType == 'national_id' || expectedType == 'driving_licence';
+    try {
+      return await _documentClient!.verifyDocumentUpload(
+        VerifyDocumentUploadRequest(
+          objectKey: objectKey,
+          backObjectKey: backObjectKey,
+          expectedType: expectedType,
+          selfie: (selfie == null || selfie.isEmpty) ? null : selfie,
+        ),
+        options: _getCallOptions(token,
+            timeout: documentCheckDeadline(twoSided: twoSided)),
+      );
+    } catch (e, stack) {
+      ErrorLogger.log('DocumentService.VerifyDocumentUpload', e, stack);
+      rethrow;
+    }
+  }
+
+  /// DocumentService.ListWorkerDocuments: the caller's own documents with the
+  /// status the backend set on each (VERIFIED, NEEDS_REVIEW, REJECTED, …) and
+  /// the expiry date read from the document.
+  Future<ListWorkerDocumentsResponse> listWorkerDocuments({
+    required String token,
+    required String tenantId,
+  }) {
+    _checkInit();
+    if (_documentClient == null) {
+      throw StateError('DocumentServiceClient is not initialized.');
+    }
+    return _documentClient!.listWorkerDocuments(
+      ListWorkerDocumentsRequest(tenantId: tenantId),
+      options: _getCallOptions(token),
+    );
+  }
+
+  /// DocumentService.DisplayDocument: a short-lived link to read one stored
+  /// file, and its content_type. Only ever called with the signed-in worker's
+  /// own keys (see withRememberedKeys); the server also refuses another
+  /// worker's file.
+  Future<DisplayDocumentResponse> displayDocument({
+    required String token,
+    required String objectKey,
+  }) {
+    _checkInit();
+    if (_documentClient == null) {
+      throw StateError('DocumentServiceClient is not initialized.');
+    }
+    return _documentClient!
+        .displayDocument(
+          DisplayDocumentRequest(objectKey: objectKey),
+          options: _getCallOptions(token),
+        )
+        .timeout(const Duration(seconds: 15));
+  }
+
+  /// Registers a previous job so the compliance team can ask that employer
+  /// for a reference. One call per job the worker listed.
+  Future<RequestEmployerReferenceResponse> requestEmployerReference({
+    required String token,
+    required String tenantId,
+    required String workerId,
+    required String employerName,
+    required String contactEmail,
+    required String position,
+    required String startDate,
+    required String endDate,
+  }) async {
+    _checkInit();
+    if (_employmentClient == null) {
+      throw StateError('EmploymentServiceClient is not initialized.');
+    }
+    try {
+      final req = RequestEmployerReferenceRequest(
+        tenantId: tenantId,
+        workerId: workerId,
+        employerName: employerName,
+        contactEmail: contactEmail,
+        position: position,
+        startDate: startDate,
+        endDate: endDate,
+      );
+      return await _employmentClient!
+          .requestEmployerReference(req, options: _getCallOptions(token));
+    } catch (e, stack) {
+      ErrorLogger.log('EmploymentService.RequestEmployerReference', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Registers a degree or certificate the worker uploaded, so it can be
+  /// verified against the awarding body.
+  ///
+  /// `documentId` is the id GenerateUploadURL issued for the file; the backend
+  /// also accepts it empty. `storedPath` must be the object key issued to this
+  /// worker.
+  Future<SubmitQualificationResponse> submitQualification({
+    required String token,
+    required String tenantId,
+    required String workerId,
+    required QualificationType type,
+    required String institution,
+    required String storedPath,
+    String contactEmail = '',
+    String documentId = '',
+  }) async {
+    _checkInit();
+    if (_qualificationClient == null) {
+      throw StateError('QualificationServiceClient is not initialized.');
+    }
+    try {
+      final req = SubmitQualificationRequest(
+        tenantId: tenantId,
+        workerId: workerId,
+        documentId: documentId,
+        qualificationType: type,
+        institution: institution,
+        storedPath: storedPath,
+        contactEmail: contactEmail,
+      );
+      return await _qualificationClient!
+          .submitQualification(req, options: _getCallOptions(token));
+    } catch (e, stack) {
+      ErrorLogger.log('QualificationService.SubmitQualification', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Reads an uploaded, confirmed CV PDF and suggests jobs and qualifications.
+  /// Nothing is saved server-side. `workerId` stays empty for the worker's own
+  /// token — the backend uses the caller; the bucket is fixed server-side.
+  Future<ParseCvResponse> parseCv({
+    required String token,
+    required String storedPath,
+  }) async {
+    _checkInit();
+    if (_qualificationClient == null) {
+      throw StateError('QualificationServiceClient is not initialized.');
+    }
+    try {
+      return await _qualificationClient!.parseCv(
+        ParseCvRequest(storedPath: storedPath),
+        options: _getCallOptions(token),
+      );
+    } catch (e, stack) {
+      ErrorLogger.log('QualificationService.ParseCv', e, stack);
+      rethrow;
+    }
+  }
+
   void _checkInit() {
     if (!_isInitialized) {
       throw StateError(
-          'CypurgeGrpcService is not initialized. Please call init() first.');
+          'The connection is not ready yet. Please try again.');
     }
   }
 

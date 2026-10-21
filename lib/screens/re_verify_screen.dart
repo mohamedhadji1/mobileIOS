@@ -1,9 +1,23 @@
-import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart';
+import 'package:cypurge_mobile/theme/platform.dart';
 import 'package:camera/camera.dart';
 import 'dart:convert';
+import 'dart:typed_data';
 import '../theme/app_theme.dart';
 import '../theme/app_widgets.dart';
 import '../services/re_verify_service.dart';
+import '../utils/error_humanizer.dart';
+import '../utils/profile_photo.dart';
+import '../utils/worker_files.dart' show documentTypeLabel;
+
+/// "8 min" under an hour, "5h" after. A spot check gives the worker minutes,
+/// and "0h remaining" read as already too late.
+String timeLeft(Duration left) {
+  if (left.inMinutes < 60) {
+    return '${left.inMinutes < 0 ? 0 : left.inMinutes} min';
+  }
+  return '${left.inHours}h';
+}
 
 class ReVerifyScreen extends StatefulWidget {
   const ReVerifyScreen({required this.task, super.key});
@@ -13,13 +27,20 @@ class ReVerifyScreen extends StatefulWidget {
   State<ReVerifyScreen> createState() => _ReVerifyScreenState();
 }
 
-class _ReVerifyScreenState extends State<ReVerifyScreen> {
+class _ReVerifyScreenState extends State<ReVerifyScreen> with CameraFullScreen {
   late final ReVerifyService _service;
-  late CameraController _cameraController;
+  // Nullable, not `late`: this is only assigned once availableCameras() has
+  // returned AND a front camera was found. When either failed, `late` left the
+  // field unassigned while dispose() still called .dispose() on it — throwing
+  // LateInitializationError on the way out of a screen that never got a camera.
+  CameraController? _cameraController;
   bool _isCameraReady = false;
   bool _isSubmitting = false;
   String? _error;
-  String? _selfieBase64;
+
+  /// The captured selfie. Kept as bytes and encoded only when submitted —
+  /// the preview used to base64-decode it again on every rebuild.
+  Uint8List? _selfie;
 
   @override
   void initState() {
@@ -31,30 +52,53 @@ class _ReVerifyScreenState extends State<ReVerifyScreen> {
   Future<void> _initCamera() async {
     try {
       final cameras = await availableCameras();
-      final front = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.front);
-      _cameraController = CameraController(front, ResolutionPreset.high);
-      await _cameraController.initialize();
-      if (mounted) setState(() => _isCameraReady = true);
+      final front = cameras
+          .firstWhere((c) => c.lensDirection == CameraLensDirection.front);
+      // Build into a local first: if this screen is popped while initialize()
+      // is in flight, dispose() has already run and would never reach a
+      // controller published to the field afterwards.
+      final controller = CameraController(front, ResolutionPreset.high);
+      await controller.initialize();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _cameraController = controller;
+        _isCameraReady = true;
+      });
     } catch (e) {
-      setState(() => _error = 'Camera init failed: $e');
+      if (!mounted) return;
+      setState(() => _error = humanizeError(e, action: 'start the camera'));
     }
   }
 
   Future<void> _captureSelfie() async {
+    final controller = _cameraController;
+    if (controller == null) {
+      setState(() => _error = 'Camera is not ready yet.');
+      return;
+    }
     try {
-      final image = await _cameraController.takePicture();
+      final image = await controller.takePicture();
       final bytes = await image.readAsBytes();
+      // Also the freshest posed photo of this worker, so re-verification keeps
+      // the Home and Profile avatar current. Reachable without re-enrolling,
+      // which matters for workers whose enrollment selfie was already consumed.
+      await saveProfileSelfie(bytes);
+      if (!mounted) return;
       setState(() {
-        _selfieBase64 = base64Encode(bytes);
+        _selfie = bytes;
         _error = null;
       });
     } catch (e) {
-      setState(() => _error = 'Capture failed: $e');
+      if (!mounted) return;
+      setState(() => _error = humanizeError(e, action: 'capture your selfie'));
     }
   }
 
   Future<void> _submitReVerify() async {
-    if (_selfieBase64 == null) {
+    if (_selfie == null) {
       setState(() => _error = 'Capture selfie first');
       return;
     }
@@ -63,21 +107,26 @@ class _ReVerifyScreenState extends State<ReVerifyScreen> {
     try {
       final result = await _service.submitReVerify(
         requestId: widget.task.id,
-        selfieBase64: _selfieBase64!,
+        selfieBase64: base64Encode(_selfie!),
       );
 
       if (mounted) {
         showDialog(
           context: context,
-          builder: (_) => ContentDialog(
+          builder: (_) => AlertDialog(
             title: const Text('Re-verification'),
             content: Text(result['message'] ?? 'Submitted'),
-            actions: [Button(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'))
+            ],
           ),
         );
       }
     } catch (e) {
-      setState(() => _error = 'Submit failed: $e');
+      setState(() =>
+          _error = humanizeError(e, action: 'submit your re-verification'));
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -85,26 +134,32 @@ class _ReVerifyScreenState extends State<ReVerifyScreen> {
 
   @override
   void dispose() {
-    _cameraController.dispose();
+    // Null when camera init never got far enough to publish a controller.
+    _cameraController?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final hoursLeft = widget.task.deadlineAt.difference(DateTime.now()).inHours;
-    final deadlineColor = hoursLeft < 12 ? AppTheme.error : hoursLeft < 24 ? AppTheme.warn : AppTheme.accentLight;
+    final left = widget.task.deadlineAt.difference(DateTime.now());
+    final hoursLeft = left.inHours;
+    final deadlineColor = hoursLeft < 12
+        ? AppTheme.error
+        : hoursLeft < 24
+            ? AppTheme.warn
+            : AppTheme.accentLight;
+    // The wording has to change too. Colour alone said nothing to a
+    // colourblind worker or on a greyscale screen.
+    final deadlineText = left.isNegative
+        ? 'Overdue'
+        : hoursLeft < 12
+            ? '${timeLeft(left)} remaining - due very soon'
+            : hoursLeft < 24
+                ? '${timeLeft(left)} remaining - due today'
+                : '${timeLeft(left)} remaining';
 
-    return ScaffoldPage(
-      header: PageHeader(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: IconButton(
-            icon: Icon(FluentIcons.chevron_left, color: AppTheme.ink, size: 18),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        title: Text('Re-verification', style: AppTheme.h2),
-      ),
+    return WTPage(
+      appBar: AppBar(title: const Text('Re-verification')),
       content: Container(
         color: AppTheme.bg,
         child: SafeArea(
@@ -123,7 +178,10 @@ class _ReVerifyScreenState extends State<ReVerifyScreen> {
                       const SizedBox(height: AppTheme.s4),
                       Text('DEADLINE', style: AppTheme.label),
                       const SizedBox(height: AppTheme.s1),
-                      Text('${hoursLeft}h remaining', style: TextStyle(color: deadlineColor, fontWeight: FontWeight.bold)),
+                      Text(deadlineText,
+                          style: TextStyle(
+                              color: deadlineColor,
+                              fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -132,43 +190,55 @@ class _ReVerifyScreenState extends State<ReVerifyScreen> {
                   Text('REQUIRED', style: AppTheme.label),
                   const SizedBox(height: AppTheme.s2),
                   ...widget.task.flaggedDocuments.map((doc) => Padding(
-                    padding: const EdgeInsets.only(bottom: AppTheme.s2),
-                    child: Row(
-                      children: [
-                        Icon(FluentIcons.check_mark, color: AppTheme.success, size: 16),
-                        const SizedBox(width: AppTheme.s2),
-                        Text(doc),
-                      ],
-                    ),
-                  )),
+                        padding: const EdgeInsets.only(bottom: AppTheme.s2),
+                        child: Row(
+                          children: [
+                            Icon(Icons.check_rounded,
+                                color: AppTheme.success, size: 16),
+                            const SizedBox(width: AppTheme.s2),
+                            // Wire values (FACE_LIVENESS, NATIONAL_ID_BACK) since the
+                            // list comes from flagged_documents; show them in words.
+                            Text(documentTypeLabel(doc)),
+                          ],
+                        ),
+                      )),
                   const SizedBox(height: AppTheme.s4),
                 ],
                 if (_error != null) ...[
                   Container(
                     padding: const EdgeInsets.all(AppTheme.s2),
-                    decoration: BoxDecoration(color: AppTheme.error.withValues(alpha: 0.1), border: Border.all(color: AppTheme.error), borderRadius: BorderRadius.circular(8)),
-                    child: Text(_error!, style: TextStyle(color: AppTheme.error, fontSize: 12)),
+                    decoration: BoxDecoration(
+                        color: AppTheme.error.withValues(alpha: 0.1),
+                        border: Border.all(color: AppTheme.error),
+                        borderRadius: BorderRadius.circular(8)),
+                    child: Text(_error!,
+                        style: TextStyle(color: AppTheme.error, fontSize: 12)),
                   ),
                   const SizedBox(height: AppTheme.s4),
                 ],
-                if (_isCameraReady) ...[
+                // _isCameraReady is only ever set together with a non-null
+                // controller, so the ! below is safe.
+                if (_isCameraReady && _cameraController != null) ...[
                   Text('SELFIE', style: AppTheme.label),
                   const SizedBox(height: AppTheme.s2),
                   Container(
                     height: 280,
-                    decoration: BoxDecoration(border: Border.all(color: AppTheme.border, width: 2), borderRadius: BorderRadius.circular(12)),
-                    child: _selfieBase64 == null
-                        ? CameraPreview(_cameraController)
+                    decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.border, width: 2),
+                        borderRadius: BorderRadius.circular(12)),
+                    child: _selfie == null
+                        ? CameraPreview(_cameraController!)
                         : Stack(
                             alignment: Alignment.center,
                             children: [
-                              Image.memory(base64Decode(_selfieBase64!)),
-                              Icon(FluentIcons.check_mark, color: AppTheme.success, size: 48),
+                              Image.memory(_selfie!),
+                              Icon(Icons.check_rounded,
+                                  color: AppTheme.success, size: 48),
                             ],
                           ),
                   ),
                   const SizedBox(height: AppTheme.s3),
-                  if (_selfieBase64 == null)
+                  if (_selfie == null)
                     FilledButton(
                       onPressed: _captureSelfie,
                       child: const Text('Capture Selfie'),
@@ -176,18 +246,22 @@ class _ReVerifyScreenState extends State<ReVerifyScreen> {
                   else
                     Row(
                       children: [
-                        Button(onPressed: () => setState(() => _selfieBase64 = null), child: const Text('Retake')),
+                        OutlinedButton(
+                            onPressed: () => setState(() => _selfie = null),
+                            child: const Text('Retake')),
                         const SizedBox(width: AppTheme.s2),
                         Expanded(
                           child: FilledButton(
                             onPressed: _isSubmitting ? null : _submitReVerify,
-                            child: Text(_isSubmitting ? 'Submitting…' : 'Submit'),
+                            child:
+                                Text(_isSubmitting ? 'Submitting…' : 'Submit'),
                           ),
                         ),
                       ],
                     ),
                 ] else
-                  const Padding(padding: EdgeInsets.all(AppTheme.s4), child: ProgressRing()),
+                  const Padding(
+                      padding: EdgeInsets.all(AppTheme.s4), child: WTSpinner()),
               ],
             ),
           ),

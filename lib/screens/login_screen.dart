@@ -1,10 +1,14 @@
-﻿import 'package:fluent_ui/fluent_ui.dart';
-import 'package:local_auth/local_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:cypurge_mobile/theme/platform.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'face_liveness_screen.dart';
 import 'package:http/http.dart' as http;
 import '../config/constants.dart';
 import '../utils/error_logger.dart';
+import '../utils/error_humanizer.dart';
+import '../services/enrollment_service.dart';
+import 'device_status_screen.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_widgets.dart';
 
@@ -15,37 +19,36 @@ class SecureLoginScreen extends StatefulWidget {
   State<SecureLoginScreen> createState() => _SecureLoginScreenState();
 }
 
-class _SecureLoginScreenState extends State<SecureLoginScreen> with SingleTickerProviderStateMixin {
-  final LocalAuthentication _auth = LocalAuthentication();
+class _SecureLoginScreenState extends State<SecureLoginScreen> {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
-  late AnimationController _logoAnimController;
-  late Animation<double> _logoScaleAnim;
-
   final TextEditingController _idController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   String? _manualUserId;
 
   bool _isEnrolled = false;
   bool _isLoading = false;
 
+  /// A worker session is stored on this phone, so the face alone unlocks it.
+  /// Without one (new phone, signed out, session ran out) the worker signs in
+  /// with email and password.
+  bool _hasSession = false;
+  bool _usePassword = true;
+
   @override
   void initState() {
     super.initState();
     _checkEnrollmentStatus();
-
-    _logoAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
-
-    _logoScaleAnim = Tween<double>(begin: 0.95, end: 1.05).animate(
-      CurvedAnimation(parent: _logoAnimController, curve: Curves.easeInOut),
-    );
   }
 
   @override
   void dispose() {
-    _logoAnimController.dispose();
+    // TextEditingController is a ChangeNotifier holding a listener list; without
+    // this the whole screen leaked on every pop.
+    _idController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -54,33 +57,65 @@ class _SecureLoginScreenState extends State<SecureLoginScreen> with SingleTicker
     try {
       final legacyToken = await _storage.read(key: 'cypurge_enrolled');
       final workerId = await _storage.read(key: 'worker_id');
-      
+      final token = await _storage.read(key: 'id_token') ??
+          await _storage.read(key: 'access_token');
+      final hasSession =
+          workerId != null && workerId.isNotEmpty && token != null;
+
       if (mounted) {
-        setState(() => _isEnrolled = (legacyToken != null && legacyToken.isNotEmpty) || (workerId != null && workerId.isNotEmpty));
+        setState(() {
+          _hasSession = hasSession;
+          _usePassword = !hasSession;
+          _isEnrolled = hasSession ||
+              (legacyToken != null && legacyToken.isNotEmpty) ||
+              (workerId != null && workerId.isNotEmpty);
+        });
       }
     } catch (e, stack) {
       ErrorLogger.log('Login Screen - Enrollment Check', e, stack);
     }
   }
 
-  /// Trigger the OS fingerprint prompt
-  Future<bool> _authenticateFingerprint() async {
-    try {
-      final bool canAuth = await _auth.canCheckBiometrics || await _auth.isDeviceSupported();
-      if (!canAuth) {
-        _showSnackBar('Biometrics not available on this device.', Colors.red.normal);
-        return false;
-      }
-
-      final bool didAuth = await _auth.authenticate(
-        localizedReason: 'Scan your fingerprint to continue',
-      );
-      return didAuth;
-    } catch (e, stack) {
-      ErrorLogger.log('Login Screen - Fingerprint Auth Failure', e, stack);
-      _showSnackBar('Fingerprint error: ${e.toString()}', Colors.red.normal);
-      return false;
+  /// Email + password, then the phone check, then the face.
+  Future<void> _signInWithPassword() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      _showSnackBar('Enter your email and password.', WTSeverity.error);
+      return;
     }
+    setState(() => _isLoading = true);
+    try {
+      await EnrollmentService()
+          .signInWithPassword(email: email, password: password);
+      if (!mounted) return;
+      await continueAfterSignIn(context);
+    } on WrongCredentialsException catch (e) {
+      _showSnackBar(e.toString(), WTSeverity.error);
+    } on NoWorkerAccountException catch (e) {
+      _showSnackBar(e.toString(), WTSeverity.error);
+    } catch (e, stack) {
+      ErrorLogger.log('Login Screen - Password Sign-in', e, stack);
+      _showSnackBar(humanizeError(e, action: 'sign in'), WTSeverity.error);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _forgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      _showSnackBar('Enter your email first.', WTSeverity.error);
+      return;
+    }
+    try {
+      await EnrollmentService().sendPasswordReset(email: email);
+    } catch (e, stack) {
+      ErrorLogger.log('Login Screen - Forgot Password', e, stack);
+    }
+    // Same answer either way: never reveal whether an account exists.
+    _showSnackBar('If an account uses $email, a reset link is on its way.',
+        WTSeverity.success);
   }
 
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -110,14 +145,17 @@ class _SecureLoginScreenState extends State<SecureLoginScreen> with SingleTicker
     // 1. Refresh enrollment status check immediately
     final storedLegacyId = await _storage.read(key: 'cypurge_user_id');
     final storedWorkerId = await _storage.read(key: 'worker_id');
-    final userId = _manualUserId ?? storedWorkerId ?? storedLegacyId ?? 'temp-login';
+    final userId =
+        _manualUserId ?? storedWorkerId ?? storedLegacyId ?? 'temp-login';
 
     if (!mounted) return;
 
     // Step 1: Face ID (Liveness + Backend Matching)
     final dynamic faceOk = await Navigator.push(
       context,
-      FluentPageRoute(builder: (_) => FaceLivenessScreen(fullLiveness: false, userId: userId)),
+      platformRoute(
+          builder: (_) =>
+              FaceLivenessScreen(fullLiveness: false, userId: userId)),
     );
 
     if (!mounted) return;
@@ -128,65 +166,44 @@ class _SecureLoginScreenState extends State<SecureLoginScreen> with SingleTicker
       return;
     }
 
-    _showSnackBar('Identity Verified. Now scan your fingerprint...', const Color(0xFF448AFF));
-
-    // Step 2: Fingerprint
-    final bool fingerOk = await _authenticateFingerprint();
-    if (!mounted) return;
-
-    if (!fingerOk) {
-      _showSnackBar('Fingerprint verification failed.', Colors.red.normal);
-      setState(() => _isLoading = false);
-      return;
-    }
-
-    // Both Passed
-    _showSnackBar('Login Successful! Welcome back.', const Color(0xFF4CAF50));
+    _showSnackBar('Login Successful! Welcome back.', WTSeverity.success);
     Navigator.pushReplacementNamed(context, '/home');
 
     setState(() => _isLoading = false);
   }
 
-  void _showSnackBar(String message, Color color) {
+  /// Severity, not a colour: the message bar used to compare a passed colour
+  /// against a hard-coded red to decide what kind of message it was.
+  void _showSnackBar(String message, WTSeverity severity) {
     if (!mounted) return;
-    displayInfoBar(
-      context,
-      builder: (context, close) => InfoBar(
-        title: const Text('Notification'),
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w500)),
-        severity: color == Colors.red.normal
-            ? InfoBarSeverity.error
-            : color == const Color(0xFF4CAF50)
-                ? InfoBarSeverity.success
-                : InfoBarSeverity.info,
-        action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
-      ),
-    );
+    wtInfoBar(
+        context,
+        switch (severity) {
+          WTSeverity.error => 'Check this',
+          WTSeverity.success => 'Done',
+          _ => 'Note',
+        },
+        message: message,
+        severity: severity);
   }
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
+    return WTPage(
       content: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: WTFormBody(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
           child: Column(
             children: [
               const Spacer(flex: 2),
 
-              // Logo / Icon
-              ScaleTransition(
-                scale: _logoScaleAnim,
-                child: SizedBox(
-                  width: 140,
-                  height: 140,
-                  child: Image.asset(
-                    'assets/Logo Maritime Trust.png',
-                    fit: BoxFit.contain,
-                  ),
-                ),
+              // Logo — flat and still: no pulse, no glow, restrained size.
+              SizedBox(
+                width: 88,
+                height: 88,
+                child: Image.asset(AppTheme.logoAsset, fit: BoxFit.contain),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
               // Title
               Text(
@@ -194,22 +211,27 @@ class _SecureLoginScreenState extends State<SecureLoginScreen> with SingleTicker
                 style: AppTheme.display,
               ),
               const SizedBox(height: 8),
+              // Says what the fields below actually ask for.
               Text(
-                _isEnrolled
-                    ? 'Sign in with fingerprint and face verification'
-                    : 'Register your fingerprint and face to get started',
+                !_isEnrolled
+                    ? 'Register your fingerprint and face to get started'
+                    : _usePassword
+                        ? 'Sign in with your email and password'
+                        : 'Sign in with fingerprint and face verification',
                 textAlign: TextAlign.center,
                 style: AppTheme.bodyMuted,
               ),
               const SizedBox(height: 20),
 
-              // Manual ID Entry (Dev)
-              WTFloatField(
-                controller: _idController,
-                label: 'User ID (optional)',
-                icon: FluentIcons.contact,
-                onChanged: (v) => _manualUserId = v,
-              ),
+              // Manual ID entry: debug builds only. In a release build it let
+              // anyone type another worker's id into the face check.
+              if (kDebugMode)
+                WTFloatField(
+                  controller: _idController,
+                  label: 'User ID (debug)',
+                  icon: Icons.person_rounded,
+                  onChanged: (v) => _manualUserId = v,
+                ),
 
               const Spacer(flex: 2),
 
@@ -217,19 +239,23 @@ class _SecureLoginScreenState extends State<SecureLoginScreen> with SingleTicker
               if (!_isEnrolled) ...[
                 _buildButton(
                   onPressed: _isLoading ? null : _signUp,
-                  icon: FluentIcons.contact,
+                  icon: Icons.person_rounded,
                   label: 'Sign Up',
                   isPrimary: true,
                 ),
                 const SizedBox(height: 14),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                // Wrap: the chips move to a second line when they don't fit.
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  runSpacing: 8,
                   children: [
-                    _buildStepChip(FluentIcons.fingerprint, 'Fingerprint'),
+                    _buildStepChip(Icons.fingerprint_rounded, 'Fingerprint'),
                     const SizedBox(width: 8),
-                    Icon(FluentIcons.chevron_right, color: AppTheme.faint, size: 18),
+                    Icon(Icons.chevron_right_rounded,
+                        color: AppTheme.faint, size: 18),
                     const SizedBox(width: 8),
-                    _buildStepChip(FluentIcons.contact, 'Face ID'),
+                    _buildStepChip(Icons.person_rounded, 'Face ID'),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -240,23 +266,66 @@ class _SecureLoginScreenState extends State<SecureLoginScreen> with SingleTicker
                 ),
               ],
 
+              // ── SIGN IN WITH EMAIL + PASSWORD ──
+              if (_isEnrolled && _usePassword) ...[
+                WTFloatField(
+                  controller: _emailController,
+                  label: 'Email',
+                  icon: Icons.mail_rounded,
+                  keyboardType: TextInputType.emailAddress,
+                  autofillHints: const [AutofillHints.email],
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 12),
+                WTFloatField(
+                  controller: _passwordController,
+                  label: 'Password',
+                  icon: Icons.lock_rounded,
+                  obscureText: true,
+                  autofillHints: const [AutofillHints.password],
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _signInWithPassword(),
+                ),
+                const SizedBox(height: 16),
+                _buildButton(
+                  onPressed: _isLoading ? null : _signInWithPassword,
+                  icon: Icons.lock_open_rounded,
+                  label: 'Sign In',
+                  isPrimary: true,
+                ),
+                TextButton(
+                  onPressed: _isLoading ? null : _forgotPassword,
+                  child: Text('Forgot password?',
+                      style: TextStyle(color: AppTheme.accent, fontSize: 14)),
+                ),
+                if (_hasSession)
+                  TextButton(
+                    onPressed: () => setState(() => _usePassword = false),
+                    child: Text('Sign in with my face instead',
+                        style: TextStyle(color: AppTheme.accent, fontSize: 14)),
+                  ),
+              ],
+
               // â”€â”€ SIGN IN MODE â”€â”€
-              if (_isEnrolled) ...[
-                 _buildButton(
-                   onPressed: _isLoading ? null : _signIn,
-                   icon: FluentIcons.unlock,
-                   label: 'Sign In',
-                   isPrimary: true,
-                 ),
+              if (_isEnrolled && !_usePassword) ...[
+                _buildButton(
+                  onPressed: _isLoading ? null : _signIn,
+                  icon: Icons.lock_open_rounded,
+                  label: 'Sign In',
+                  isPrimary: true,
+                ),
                 const SizedBox(height: 14),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  runSpacing: 8,
                   children: [
-                    _buildStepChip(FluentIcons.contact, 'Face ID'),
+                    _buildStepChip(Icons.person_rounded, 'Face ID'),
                     const SizedBox(width: 8),
-                    Icon(FluentIcons.chevron_right, color: AppTheme.faint, size: 18),
+                    Icon(Icons.chevron_right_rounded,
+                        color: AppTheme.faint, size: 18),
                     const SizedBox(width: 8),
-                    _buildStepChip(FluentIcons.fingerprint, 'Fingerprint'),
+                    _buildStepChip(Icons.fingerprint_rounded, 'Fingerprint'),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -270,50 +339,69 @@ class _SecureLoginScreenState extends State<SecureLoginScreen> with SingleTicker
               const Spacer(flex: 1),
 
               // Toggle between Sign Up / Sign In
-              HyperlinkButton(
+              TextButton(
                 onPressed: () => setState(() => _isEnrolled = !_isEnrolled),
                 child: Text(
-                  _isEnrolled ? "Don't have an account? Sign Up" : 'Already enrolled? Sign In',
+                  _isEnrolled
+                      ? "Don't have an account? Sign Up"
+                      : 'Already enrolled? Sign In',
                   style: TextStyle(color: AppTheme.accent, fontSize: 14),
                 ),
               ),
-              
-              // Dev Tool: Status Info
-              FutureBuilder<String?>(
-                future: _storage.read(key: 'cypurge_user_id'),
-                builder: (context, snapshot) {
-                  return Text(
-                    'Debug: ID Found = ${snapshot.data ?? "NONE"}',
-                    style: TextStyle(color: AppTheme.faint, fontSize: 10),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
 
-              // Dev Tool: Reset Cache
-              HyperlinkButton(
-                onPressed: () async {
-                  await _storage.deleteAll();
-                  setState(() => _isEnrolled = false);
-                  try {
-                    final response = await http.post(
-                      Uri.parse('${AppConfig.apiBaseUrl}/v1/dev/reset'),
+              // DEV TOOLS — debug builds only.
+              // Both shipped to production before: the readout prints a stored
+              // user ID on the launch screen, and the button wipes local storage
+              // then POSTs a destructive /v1/dev/reset that drops backend data.
+              // kDebugMode is a compile-time constant, so this whole subtree is
+              // tree-shaken out of release binaries rather than merely hidden.
+              if (kDebugMode) ...[
+                FutureBuilder<String?>(
+                  future: _storage.read(key: 'cypurge_user_id'),
+                  builder: (context, snapshot) {
+                    return Text(
+                      'Debug: ID Found = ${snapshot.data ?? "NONE"}',
+                      style: TextStyle(color: AppTheme.faint, fontSize: 10),
                     );
-                    if (response.statusCode == 200) {
-                      if (mounted) _showSnackBar('App cache & database cleared!', Colors.orange.normal);
-                    } else {
-                      if (mounted) _showSnackBar('Cleared cache, database reset failed.', Colors.red.normal);
-                    }
-                  } catch (e, stack) {
-                    ErrorLogger.log('Login Screen - Reset App Data Dev Endpoint', e, stack);
-                    if (mounted) _showSnackBar('App cache cleared locally.', Colors.orange.normal);
-                  }
-                },
-                child: Text(
-                  'Reset App Data',
-                  style: TextStyle(color: Colors.red, fontSize: 12),
+                  },
                 ),
-              ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () async {
+                    await _storage.deleteAll();
+                    setState(() => _isEnrolled = false);
+                    try {
+                      final response = await http.post(
+                        Uri.parse('${AppConfig.apiBaseUrl}/v1/dev/reset'),
+                      );
+                      if (response.statusCode == 200) {
+                        if (mounted) {
+                          _showSnackBar('App cache & database cleared!',
+                              WTSeverity.warning);
+                        }
+                      } else {
+                        if (mounted) {
+                          _showSnackBar('Cleared cache, database reset failed.',
+                              WTSeverity.error);
+                        }
+                      }
+                    } catch (e, stack) {
+                      ErrorLogger.log(
+                          'Login Screen - Reset App Data Dev Endpoint',
+                          e,
+                          stack);
+                      if (mounted) {
+                        _showSnackBar(
+                            'App cache cleared locally.', WTSeverity.warning);
+                      }
+                    }
+                  },
+                  child: Text(
+                    'Reset App Data',
+                    style: TextStyle(color: AppTheme.error, fontSize: 12),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
             ],
           ),

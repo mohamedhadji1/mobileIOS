@@ -1,9 +1,11 @@
-﻿import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart';
+import 'package:cypurge_mobile/theme/platform.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import '../widgets/step_indicator.dart';
 import '../utils/error_logger.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_widgets.dart';
 
 class FingerprintScanScreen extends StatefulWidget {
   const FingerprintScanScreen({super.key});
@@ -12,14 +14,15 @@ class FingerprintScanScreen extends StatefulWidget {
   State<FingerprintScanScreen> createState() => _FingerprintScanScreenState();
 }
 
-class _FingerprintScanScreenState extends State<FingerprintScanScreen> with TickerProviderStateMixin {
+class _FingerprintScanScreenState extends State<FingerprintScanScreen>
+    with TickerProviderStateMixin {
   final LocalAuthentication auth = LocalAuthentication();
-  
+
   late AnimationController _scanController;
   late Animation<double> _scanLineAnimation;
   late AnimationController _pulseController;
   late AnimationController _successController;
-  
+
   bool _isHolding = false;
   double _progress = 0.0;
   bool _isSuccess = false;
@@ -47,6 +50,17 @@ class _FingerprintScanScreenState extends State<FingerprintScanScreen> with Tick
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Reduce-motion freezes the pulse (build reads 0.5), so stop its ticker.
+    if (AppTheme.reduceMotion(context)) {
+      _pulseController.stop();
+    } else if (!_pulseController.isAnimating) {
+      _pulseController.repeat(reverse: true);
+    }
   }
 
   @override
@@ -85,7 +99,7 @@ class _FingerprintScanScreenState extends State<FingerprintScanScreen> with Tick
     for (var stage in stages) {
       if (!_isHolding) return;
       _addLog(stage['m'] as String);
-      
+
       double target = stage['p'] as double;
       double start = _progress;
       int steps = 15;
@@ -129,7 +143,7 @@ class _FingerprintScanScreenState extends State<FingerprintScanScreen> with Tick
           _statusText = 'ENROLLMENT SUCCESS';
         });
         _successController.forward();
-        
+
         Future.delayed(const Duration(milliseconds: 2000), () {
           if (mounted) Navigator.pop(context, true);
         });
@@ -144,157 +158,201 @@ class _FingerprintScanScreenState extends State<FingerprintScanScreen> with Tick
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
+    return WTPage(
       content: Container(
         decoration: BoxDecoration(color: AppTheme.bg),
         child: SafeArea(
-          child: Padding(
+          // Scrolls on short screens: the scanner alone is 240dp tall.
+          child: WTFormBody(
             padding: const EdgeInsets.all(24.0),
             child: Column(
               children: [
                 const StepIndicator(
-                  currentStep: 2,
-                  stepLabels: ['Scan', 'Details', 'Biometrics', 'Documents'],
+                  currentStep: 4,
+                  stepLabels: [
+                    'Scan',
+                    'Details',
+                    'Experience',
+                    'Documents',
+                    'Biometrics'
+                  ],
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 // Security Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(FluentIcons.shield, color: AppTheme.accent, size: 14),
+                    Icon(Icons.shield_rounded,
+                        color: AppTheme.accent, size: 14),
                     const SizedBox(width: 8),
-                    Text(
-                      'SECURE BIOMETRIC SUBSYSTEM',
-                      style: TextStyle(
-                        color: AppTheme.faint,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.5,
+                    Flexible(
+                      child: Text(
+                        'SECURE BIOMETRIC SUBSYSTEM',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppTheme.faint,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                
+
                 const Spacer(),
-                
+
                 // Scanner Area
                 Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Outer glow/ring
-                    AnimatedBuilder(
-                      animation: _pulseController,
-                      builder: (context, child) {
-                        return Container(
-                          width: 240,
-                          height: 240,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: (_isSuccess ? AppTheme.success : AppTheme.accent)
-                                    .withValues(alpha: _isHolding ? 0.2 : 0.05),
-                                blurRadius: 40,
-                                spreadRadius: _pulseController.value * 10,
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                    // Outer glow/ring.
+                    // Boxed into its own layer: _pulseController repeats for the
+                    // screen's whole lifetime and drives spreadRadius, so this
+                    // 40px blur is re-rendered every frame and can never be
+                    // cached. Unboxed it dragged the whole enclosing layer —
+                    // progress ring, icon, log panel — into that repaint.
+                    RepaintBoundary(
+                      child: AnimatedBuilder(
+                        animation: _pulseController,
+                        builder: (context, child) {
+                          final pulse = AppTheme.reduceMotion(context)
+                              ? 0.5
+                              : _pulseController.value;
+                          return Container(
+                            width: 240,
+                            height: 240,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: (_isSuccess
+                                          ? AppTheme.success
+                                          : AppTheme.accent)
+                                      .withValues(
+                                          alpha: _isHolding ? 0.2 : 0.05),
+                                  blurRadius: 40,
+                                  spreadRadius: pulse * 10,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                    
+
                     // Progress Ring
                     SizedBox(
                       width: 220,
                       height: 220,
-                      child: ProgressRing(
+                      child: WTSpinner(
                         value: _progress * 100,
                         strokeWidth: 6,
-                        activeColor: _isSuccess ? AppTheme.success : AppTheme.accent,
+                        activeColor:
+                            _isSuccess ? AppTheme.success : AppTheme.accent,
                         backgroundColor: AppTheme.border,
                       ),
                     ),
-                    
+
                     // Main Scanner Circle
-                    GestureDetector(
-                      onTapDown: (_) => _startScanning(),
-                      onTapUp: (_) => _stopScanning(),
-                      onTapCancel: () => _stopScanning(),
-                      child: Container(
-                        width: 180,
-                        height: 180,
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceAlt,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: _isSuccess ? AppTheme.success : AppTheme.border2,
-                            width: 2,
-                          ),
-                        ),
-                        child: ClipOval(
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              Icon(
-                                FluentIcons.fingerprint,
-                                size: 100,
-                                color: _isSuccess ? AppTheme.success : (_isHolding ? AppTheme.accent : AppTheme.faint),
+                    Semantics(
+                        button: true,
+                        enabled: !_isSuccess,
+                        label: 'Scan fingerprint',
+                        hint: 'Double-tap to scan',
+                        onTap: _startScanning,
+                        excludeSemantics: true,
+                        child: GestureDetector(
+                          onTapDown: (_) => _startScanning(),
+                          onTapUp: (_) => _stopScanning(),
+                          onTapCancel: () => _stopScanning(),
+                          child: Container(
+                            width: 180,
+                            height: 180,
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceAlt,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _isSuccess
+                                    ? AppTheme.success
+                                    : AppTheme.border2,
+                                width: 2,
                               ),
-                              
-                              // Scan Line
-                              if (_isHolding)
-                                AnimatedBuilder(
-                                  animation: _scanLineAnimation,
-                                  builder: (context, child) {
-                                    return Positioned(
-                                      top: 90 + _scanLineAnimation.value,
-                                      left: 0,
-                                      right: 0,
-                                      child: Container(
-                                        height: 3,
-                                        decoration: BoxDecoration(
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: AppTheme.accent.withValues(alpha: 0.8),
-                                              blurRadius: 10,
-                                              spreadRadius: 2,
-                                            )
-                                          ],
-                                          gradient: LinearGradient(
-                                            colors: [
-                                              AppTheme.accent.withValues(alpha: 0),
-                                              AppTheme.accent,
-                                              AppTheme.accent.withValues(alpha: 0),
-                                            ],
+                            ),
+                            child: ClipOval(
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.fingerprint_rounded,
+                                    size: 100,
+                                    color: _isSuccess
+                                        ? AppTheme.success
+                                        : (_isHolding
+                                            ? AppTheme.accent
+                                            : AppTheme.faint),
+                                  ),
+
+                                  // Scan Line
+                                  if (_isHolding &&
+                                      !AppTheme.reduceMotion(context))
+                                    AnimatedBuilder(
+                                      animation: _scanLineAnimation,
+                                      builder: (context, child) {
+                                        return Positioned(
+                                          top: 90 + _scanLineAnimation.value,
+                                          left: 0,
+                                          right: 0,
+                                          child: Container(
+                                            height: 3,
+                                            decoration: BoxDecoration(
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: AppTheme.accent
+                                                      .withValues(alpha: 0.8),
+                                                  blurRadius: 10,
+                                                  spreadRadius: 2,
+                                                )
+                                              ],
+                                              gradient: LinearGradient(
+                                                colors: [
+                                                  AppTheme.accent
+                                                      .withValues(alpha: 0),
+                                                  AppTheme.accent,
+                                                  AppTheme.accent
+                                                      .withValues(alpha: 0),
+                                                ],
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                                
-                              // Success Overlay
-                              ScaleTransition(
-                                scale: _successController,
-                                child: Container(
-                                  width: 180,
-                                  height: 180,
-                                  color: AppTheme.success.withValues(alpha: 0.2),
-                                  child: const Icon(FluentIcons.check_mark, color: Colors.white, size: 60),
-                                ),
+                                        );
+                                      },
+                                    ),
+
+                                  // Success Overlay
+                                  ScaleTransition(
+                                    scale: _successController,
+                                    child: Container(
+                                      width: 180,
+                                      height: 180,
+                                      color: AppTheme.success
+                                          .withValues(alpha: 0.2),
+                                      child: const Icon(Icons.check_rounded,
+                                          color: Colors.white, size: 60),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
+                        )),
                   ],
                 ),
-                
+
                 const Spacer(),
-                
+
                 // Status and Logs
                 Container(
                   width: double.infinity,
@@ -305,7 +363,9 @@ class _FingerprintScanScreenState extends State<FingerprintScanScreen> with Tick
                       Text(
                         _statusText,
                         style: TextStyle(
-                          color: _isSuccess ? AppTheme.success : (_isHolding ? AppTheme.accent : AppTheme.ink),
+                          color: _isSuccess
+                              ? AppTheme.success
+                              : (_isHolding ? AppTheme.accent : AppTheme.ink),
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           letterSpacing: 1.0,
@@ -313,22 +373,22 @@ class _FingerprintScanScreenState extends State<FingerprintScanScreen> with Tick
                       ),
                       const SizedBox(height: 16),
                       ..._scanLogs.map((log) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(
-                          log,
-                          style: TextStyle(
-                            color: AppTheme.faint,
-                            fontSize: 12,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      )),
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              log,
+                              style: TextStyle(
+                                color: AppTheme.faint,
+                                fontSize: 12,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          )),
                     ],
                   ),
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 Text(
                   'PRESS AND HOLD TO SCAN',
                   style: TextStyle(

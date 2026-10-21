@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required for network_info_plus getWifiName/getWifiBSSID on iOS 13+.
+	     Also enable "Access WiFi Information" capability in Xcode > Signing & Capabilities
+	     (adds it to the provisioning profile). Without both, SSID/BSSID return null. -->
+	<key>com.apple.developer.networking.wifi-info</key>
+	<true/>
+</dict>
+</plist>

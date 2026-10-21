@@ -49,19 +49,49 @@ class TrafficLight extends $pb.ProtobufEnum {
   static const TrafficLight TRAFFIC_LIGHT_RED =
       TrafficLight._(3, _omitEnumNames ? '' : 'TRAFFIC_LIGHT_RED');
 
+  /// Assessed but awaiting human review (enrollment review gate).
+  static const TrafficLight TRAFFIC_LIGHT_GREY =
+      TrafficLight._(4, _omitEnumNames ? '' : 'TRAFFIC_LIGHT_GREY');
+
   static const $core.List<TrafficLight> values = <TrafficLight>[
     TRAFFIC_LIGHT_UNSPECIFIED,
     TRAFFIC_LIGHT_GREEN,
     TRAFFIC_LIGHT_YELLOW,
     TRAFFIC_LIGHT_RED,
+    TRAFFIC_LIGHT_GREY,
   ];
 
   static final $core.List<TrafficLight?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 3);
+      $pb.ProtobufEnum.$_initByValueList(values, 4);
   static TrafficLight? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
   const TrafficLight._(super.value, super.name);
+}
+
+class Decision extends $pb.ProtobufEnum {
+  static const Decision DECISION_UNSPECIFIED =
+      Decision._(0, _omitEnumNames ? '' : 'DECISION_UNSPECIFIED');
+  static const Decision DECISION_APPROVED =
+      Decision._(1, _omitEnumNames ? '' : 'DECISION_APPROVED');
+  static const Decision DECISION_REJECTED =
+      Decision._(2, _omitEnumNames ? '' : 'DECISION_REJECTED');
+  static const Decision DECISION_ESCALATED =
+      Decision._(3, _omitEnumNames ? '' : 'DECISION_ESCALATED');
+
+  static const $core.List<Decision> values = <Decision>[
+    DECISION_UNSPECIFIED,
+    DECISION_APPROVED,
+    DECISION_REJECTED,
+    DECISION_ESCALATED,
+  ];
+
+  static final $core.List<Decision?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
+  static Decision? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const Decision._(super.value, super.name);
 }
 
 const $core.bool _omitEnumNames =

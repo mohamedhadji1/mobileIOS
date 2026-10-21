@@ -1,7 +1,10 @@
-﻿import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart';
+import 'package:cypurge_mobile/theme/platform.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/enrollment_service.dart';
+import '../services/cypurge_grpc_service.dart';
 import '../utils/error_logger.dart';
+import '../utils/error_humanizer.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_widgets.dart';
 
@@ -27,20 +30,21 @@ class _AppealFormScreenState extends State<AppealFormScreen> {
     {'id': 'other', 'name': 'Other / Special circumstances'},
   ];
 
+  @override
+  void dispose() {
+    // ChangeNotifier with a listener list — leaked the screen on every pop.
+    _explanationController.dispose();
+    super.dispose();
+  }
+
   Future<void> _submitAppeal() async {
     if (!_formKey.currentState!.validate()) return;
 
     final explanation = _explanationController.text.trim();
     if (explanation.length < 50) {
-      displayInfoBar(
-        context,
-        builder: (context, close) => InfoBar(
-          title: const Text('Validation Warning'),
-          content: const Text('Please explain your dispute in at least 50 characters.'),
-          severity: InfoBarSeverity.warning,
-          action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
-        ),
-      );
+      wtInfoBar(context, 'Validation Warning',
+          message: 'Please explain your dispute in at least 50 characters.',
+          severity: WTSeverity.warning);
       return;
     }
 
@@ -48,31 +52,39 @@ class _AppealFormScreenState extends State<AppealFormScreen> {
 
     try {
       final token = await EnrollmentService().getValidAccessToken();
-      final workerId = await _storage.read(key: 'worker_id') ?? 'pending-worker';
-      final tenantId = await _storage.read(key: 'tenant_id') ?? '00000000-0000-0000-0000-000000000001';
+      final workerId =
+          await _storage.read(key: 'worker_id') ?? 'pending-worker';
+      final tenantId = await _storage.read(key: 'tenant_id') ??
+          '00000000-0000-0000-0000-000000000001';
 
       // The appeal is recorded for analyst review; only an authenticated session
       // is required. A missing worker_id must not block the dispute.
       if (token == null) {
-        throw Exception('User authentication session has expired. Please log in again.');
+        throw Exception(
+            'User authentication session has expired. Please log in again.');
       }
 
-      debugPrint('ðŸ“¤ Calling gRPC RiskService.SubmitAppeal: Reason=$_selectedReason, Worker=$workerId, Tenant=$tenantId...');
-      // Submit appeal details via gRPC to risk/case microservice
-      // We simulate direct success if the live VM does not expose the appeal service methods yet
-      await Future.delayed(const Duration(seconds: 2));
+      // Real call to case.v1.CaseService.SubmitAppeal through the gateway.
+      // This used to be `await Future.delayed(Duration(seconds: 2))` followed by
+      // an unconditional "Appeal Submitted" banner — the worker's dispute was
+      // silently discarded while they were told an analyst would review it.
+      final grpc = CypurgeGrpcService();
+      grpc.init(useGateway: true);
+      final res = await grpc.submitAppeal(
+        token: token,
+        tenantId: tenantId,
+        workerId: workerId,
+        reason: _selectedReason,
+        description: explanation,
+      );
+      debugPrint('Appeal filed: case=${res.caseId}');
 
       if (mounted) {
-        displayInfoBar(
-          context,
-          builder: (context, close) => InfoBar(
-            title: const Text('Appeal Submitted'),
-            content: const Text('Your dispute has been logged. A security analyst will review within 2 business days.'),
-            severity: InfoBarSeverity.success,
-            action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
-          ),
-        );
-        
+        wtInfoBar(context, 'Appeal Submitted',
+            message:
+                'Your dispute has been logged. A security analyst will review within 2 business days.',
+            severity: WTSeverity.success);
+
         await Future.delayed(const Duration(seconds: 1));
         if (mounted) {
           Navigator.pop(context, true);
@@ -81,15 +93,9 @@ class _AppealFormScreenState extends State<AppealFormScreen> {
     } catch (e, stack) {
       ErrorLogger.log('Worker Appeal Submission Process', e, stack);
       if (mounted) {
-        displayInfoBar(
-          context,
-          builder: (context, close) => InfoBar(
-            title: const Text('Submission Failed'),
-            content: Text(e.toString()),
-            severity: InfoBarSeverity.error,
-            action: IconButton(icon: const Icon(FluentIcons.clear), onPressed: close),
-          ),
-        );
+        wtInfoBar(context, 'Submission Failed',
+            message: humanizeError(e, action: 'submit your appeal'),
+            severity: WTSeverity.error);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -98,116 +104,132 @@ class _AppealFormScreenState extends State<AppealFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
-      header: PageHeader(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: IconButton(
-            icon: Icon(FluentIcons.chevron_left, color: AppTheme.ink, size: 18),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        title: Text('Submit Appeal', style: AppTheme.h2),
-      ),
-      content: Container(
-        color: AppTheme.bg,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppTheme.s4),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Danger alert (matches .alert.ad)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: AppTheme.s4, vertical: AppTheme.s3),
-                  decoration: BoxDecoration(
-                    color: AppTheme.tint(AppTheme.error),
-                    borderRadius: BorderRadius.circular(AppTheme.rSm),
-                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.35)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(FluentIcons.warning, color: AppTheme.error, size: 16),
-                      const SizedBox(width: AppTheme.s2),
-                      Expanded(
-                        child: Text(
-                          'Explain the discrepancy to request a manual review by a security analyst.',
-                          style: TextStyle(
-                              color: AppTheme.error, fontSize: 13, height: 1.45),
-                        ),
+    return ColoredBox(
+      // Edge to edge: the status bar draws over the app, so the header keeps
+      // clear of it; the page colour fills the space behind the bars.
+      color: AppTheme.bg,
+      child: SafeArea(
+        child: WTPage(
+          appBar: AppBar(title: const Text('Submit Appeal')),
+          content: Container(
+            color: AppTheme.bg,
+            child: WTFormBody(
+              padding: const EdgeInsets.all(AppTheme.s4),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Danger alert (matches .alert.ad)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppTheme.s4, vertical: AppTheme.s3),
+                      decoration: BoxDecoration(
+                        color: AppTheme.tint(AppTheme.error),
+                        borderRadius: BorderRadius.circular(AppTheme.rSm),
+                        border: Border.all(
+                            color: AppTheme.error.withValues(alpha: 0.35)),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppTheme.s5),
-
-                Text('APPEAL REASON', style: AppTheme.label),
-                const SizedBox(height: AppTheme.s2),
-                Container(
-                  decoration: AppTheme.card(radius: AppTheme.rSm),
-                  padding: const EdgeInsets.symmetric(horizontal: AppTheme.s3),
-                  child: ComboBox<String>(
-                    isExpanded: true,
-                    value: _selectedReason,
-                    items: _reasons
-                        .map((r) => ComboBoxItem<String>(
-                              value: r['id'],
-                              child: Text(r['name']!,
-                                  style: TextStyle(color: AppTheme.ink)),
-                            ))
-                        .toList(),
-                    onChanged: (val) {
-                      if (val != null) setState(() => _selectedReason = val);
-                    },
-                    placeholder: const Text('Select a reason'),
-                  ),
-                ),
-                const SizedBox(height: AppTheme.s4),
-
-                WTFloatField(
-                  controller: _explanationController,
-                  label: 'Details (min 50 characters)',
-                  maxLines: 6,
-                  validator: (val) {
-                    if (val == null || val.isEmpty) return 'Required';
-                    if (val.trim().length < 50) {
-                      return 'Must be at least 50 characters';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: AppTheme.s6),
-
-                // Submit (matches .btn-r â€” red appeal action)
-                GestureDetector(
-                  onTap: _isLoading ? null : _submitAppeal,
-                  child: Container(
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: AppTheme.tint(AppTheme.error),
-                      borderRadius: BorderRadius.circular(AppTheme.rMd),
-                      border:
-                          Border.all(color: AppTheme.error.withValues(alpha: 0.4)),
-                    ),
-                    child: Center(
-                      child: _isLoading
-                          ? ProgressRing(
-                              strokeWidth: 2, activeColor: AppTheme.error)
-                          : Text(
-                              'Submit Appeal',
+                      child: Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded,
+                              color: AppTheme.error, size: 16),
+                          const SizedBox(width: AppTheme.s2),
+                          Expanded(
+                            child: Text(
+                              'Explain the discrepancy to request a manual review by a security analyst.',
                               style: TextStyle(
-                                color: AppTheme.error,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
+                                  color: AppTheme.error,
+                                  fontSize: 13,
+                                  height: 1.45),
                             ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: AppTheme.s5),
+
+                    Text('APPEAL REASON', style: AppTheme.label),
+                    const SizedBox(height: AppTheme.s2),
+                    Container(
+                      decoration: AppTheme.card(radius: AppTheme.rSm),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: AppTheme.s3),
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: _selectedReason,
+                        items: _reasons
+                            .map((r) => DropdownMenuItem<String>(
+                                  value: r['id'],
+                                  child: Text(r['name']!,
+                                      style: TextStyle(color: AppTheme.ink)),
+                                ))
+                            .toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => _selectedReason = val);
+                          }
+                        },
+                        hint: const Text('Select a reason'),
+                        // The card around it is the field's outline.
+                        underline: const SizedBox.shrink(),
+                        dropdownColor: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(AppTheme.rSm),
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.s4),
+
+                    WTFloatField(
+                      controller: _explanationController,
+                      label: 'Details (min 50 characters)',
+                      maxLines: 6,
+                      validator: (val) {
+                        if (val == null || val.isEmpty) return 'Required';
+                        if (val.trim().length < 50) {
+                          return 'Must be at least 50 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: AppTheme.s6),
+
+                    // Submit (matches .btn-r — red appeal action)
+                    Semantics(
+                        button: true,
+                        enabled: !_isLoading,
+                        label:
+                            _isLoading ? 'Submitting appeal' : 'Submit appeal',
+                        excludeSemantics: true,
+                        child: GestureDetector(
+                          onTap: _isLoading ? null : _submitAppeal,
+                          child: Container(
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: AppTheme.tint(AppTheme.error),
+                              borderRadius: BorderRadius.circular(AppTheme.rMd),
+                              border: Border.all(
+                                  color: AppTheme.error.withValues(alpha: 0.4)),
+                            ),
+                            child: Center(
+                              child: _isLoading
+                                  ? WTSpinner(
+                                      strokeWidth: 2,
+                                      activeColor: AppTheme.error)
+                                  : Text(
+                                      'Submit Appeal',
+                                      style: TextStyle(
+                                        color: AppTheme.error,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        )),
+                    const SizedBox(height: AppTheme.s4),
+                  ],
                 ),
-                const SizedBox(height: AppTheme.s4),
-              ],
+              ),
             ),
           ),
         ),
